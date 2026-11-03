@@ -36,12 +36,15 @@ body{
 .stack.two{width:auto;max-width:none;flex-direction:row;align-items:flex-start}
 .stack .col{display:flex;flex-direction:column;align-items:flex-start;gap:var(--gz,16px)}
 .card{
-  position:relative;width:440px;background:rgba(255,255,255,var(--a));
+  position:relative;width:440px;color:var(--fg);background:rgba(255,255,255,var(--a));
   -webkit-backdrop-filter:blur(var(--b)) saturate(1.25);backdrop-filter:blur(var(--b)) saturate(1.25);
   border:1px solid rgba(255,255,255,.34);border-radius:28px;padding:18px 26px;
   box-shadow:0 12px 40px rgba(0,0,0,.22);transition:opacity .3s;
 }
 .card.off{opacity:.5}
+/* 自動の文字色で、後ろの明暗が混じって読みにくいところは、文字に薄い影を付ける */
+.lowc-light{text-shadow:0 1px 3px rgba(0,0,0,.55)}
+.lowc-dark{text-shadow:0 0 3px rgba(255,255,255,.7)}
 .badge{display:none;position:absolute;top:14px;right:18px;font-size:12px;padding:3px 10px;border-radius:99px;background:rgba(0,0,0,.45);color:#fff}
 .off .badge{display:block}
 .row{display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -88,12 +91,12 @@ body{
 .mapWrap{position:relative}
 #radar{width:100%;height:var(--rh,230px);border-radius:16px;display:block;border:1px solid rgba(255,255,255,.3)}
 .chip{position:absolute;top:10px;left:10px;font-size:13px;padding:3px 10px;border-radius:99px;background:rgba(0,0,0,.7);color:#fff;font-variant-numeric:tabular-nums}
-.prog{height:4px;border-radius:2px;background:rgba(255,255,255,.22);margin-top:8px;overflow:hidden}
+.prog{height:4px;border-radius:2px;background:var(--track,rgba(255,255,255,.22));margin-top:8px;overflow:hidden}
 .prog b{display:block;height:100%;background:var(--fg);width:0}
-.rinfo{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--c-sub,var(--muted));margin-top:6px}
+.rinfo{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--c-rsub,var(--muted));margin-top:6px}
 .legend{display:flex;align-items:center;gap:6px}
 .legend .bar{display:block;width:120px;height:8px;border-radius:4px;background:linear-gradient(90deg,#c9d1ea,#8db3e3,#4f86e0,#facc15,#fb923c,#ef4444)}
-.attr{font-size:11px;color:var(--c-sub,var(--muted));margin-top:6px}
+.attr{font-size:11px;color:var(--c-rsub,var(--muted));margin-top:6px}
 /* usage */
 .u{display:flex;align-items:center;gap:14px;margin:10px 0}
 .u-cpu .l{color:var(--c-cpu,var(--fg))}
@@ -102,7 +105,7 @@ body{
 .btn:disabled{opacity:.4;cursor:default}
 .u .l{width:128px;display:flex;justify-content:space-between;font-size:20px;font-variant-numeric:tabular-nums}
 .u .l b{font-weight:600}
-.u .t{flex:1;height:16px;border-radius:8px;background:rgba(255,255,255,.22);overflow:hidden}
+.u .t{flex:1;height:16px;border-radius:8px;background:var(--track,rgba(255,255,255,.22));overflow:hidden}
 .u .t i{display:block;height:100%;border-radius:8px;width:0;transition:width .6s}
 .cap{font-size:12px;color:var(--c-sub,var(--muted));margin:-8px 0 2px 142px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cap:empty{display:none}
@@ -177,11 +180,11 @@ body{
 .stage{flex-wrap:nowrap}
 /* 擬似ガラス：ぼかした壁紙を、各カードの背景に敷く（位置はJSで合わせる） */
 .pg .card{-webkit-backdrop-filter:none;backdrop-filter:none;background-color:transparent;
-  background-image:linear-gradient(rgba(255,255,255,var(--a)),rgba(255,255,255,var(--a))),var(--bgimg,none);
-  background-size:auto,var(--bgw,100%) var(--bgh,100%);
-  background-position:0 0,var(--bgx,0) var(--bgy,0);
+  background-image:var(--scrimimg,linear-gradient(transparent,transparent)),linear-gradient(rgba(0,0,0,var(--dim,0)),rgba(0,0,0,var(--dim,0))),linear-gradient(rgba(255,255,255,var(--a)),rgba(255,255,255,var(--a))),var(--bgimg,none);
+  background-size:auto,auto,auto,var(--bgw,100%) var(--bgh,100%);
+  background-position:0 0,0 0,0 0,var(--bgx,0) var(--bgy,0);
   background-repeat:no-repeat;background-origin:border-box}
-.pg-fallback .card{background-image:none;background-color:rgba(28,32,48,.78)}
+.pg-fallback .card{background-image:linear-gradient(rgba(0,0,0,var(--dim,0)),rgba(0,0,0,var(--dim,0)));background-size:auto;background-position:0 0;background-color:rgba(28,32,48,.78)}
 .panel{max-height:640px;overflow:auto}
 html,body{overflow-x:hidden;overflow-y:auto}
 ::-webkit-scrollbar{width:0;height:0}
@@ -291,10 +294,17 @@ html,body{overflow-x:hidden;overflow-y:auto}
 
     <h3>外観</h3>
     <label>文字色
-      <span class="seg"><label><input type="radio" name="fg" value="#ffffff" checked>白</label><label><input type="radio" name="fg" value="#14213D">黒</label></span>
+      <span class="seg"><label><input type="radio" name="fg" value="#ffffff" checked>白</label><label><input type="radio" name="fg" value="#14213D">黒</label><label><input type="radio" name="fg" value="auto">自動</label></span>
     </label>
+    <label>自動のときの好み
+      <select id="autoPref"><option value="white" selected>白を優先</option><option value="dark">黒を優先</option><option value="none">どちらでもない</option></select>
+    </label>
+    <div style="font-size:12px;color:#9fb3d9;margin:-2px 0 6px;line-height:1.5">自動: カードの後ろの壁紙の明るさを見て、読みにくいところはそのカードのガラスを暗く（黒優先なら明るく）して読みやすくします。それでも足りないほど明るい（暗い）ときだけ、もう一方の色に切り替えます。「文字の色（項目ごと）」で色を変えた項目は、その色のままです。</div>
     <label>ガラスの濃さ <input type="range" id="alpha" min="0" max="60" value="16"></label>
     <label>ぼかしの強さ <input type="range" id="blur" min="0" max="40" value="20"></label>
+    <label>ガラスの暗さ <span class="rv"><input type="range" id="dim" min="0" max="80" value="0"><output id="oDim">0%</output></span></label>
+    <label>自動で暗くする上限 <span class="rv"><input type="range" id="autoCap" min="0" max="80" value="50"><output id="oCap">50%</output></span></label>
+    <div style="font-size:12px;color:#9fb3d9;margin:-2px 0 6px;line-height:1.5">ガラスの暗さは、文字色が白・黒・自動のどれでも効きます。上限は、文字色が自動のときに読みやすさのために足す調整の最大値です（黒優先のときは明るくする量）。</div>
 
     <h3>サイズと表示</h3>
     <label>全体の大きさ <span class="rv"><input type="range" id="zAll" min="50" max="150" value="100"><output id="oAll">100%</output></span></label>
@@ -439,11 +449,24 @@ html,body{overflow-x:hidden;overflow-y:auto}
   }
   document.querySelectorAll('input[name=fg]').forEach(function(r){
     r.onchange=function(){
-      root.setProperty('--fg',r.value);
-      root.setProperty('--muted',r.value==='#ffffff'?'rgba(255,255,255,.72)':'rgba(20,33,61,.72)');
+      var auto=r.value==='auto',v=auto?'#ffffff':r.value;
+      root.setProperty('--fg',v);
+      root.setProperty('--muted',v==='#ffffff'?'rgba(255,255,255,.72)':'rgba(20,33,61,.72)');
+      root.setProperty('--track',v==='#ffffff'?'rgba(255,255,255,.22)':'rgba(20,33,61,.16)');
+      window.GADGET_AUTOFG=auto;
+      if(window.GadgetAutoColor)window.GadgetAutoColor.set(auto);
     };
   });
-  $('#alpha').oninput=function(e){root.setProperty('--a',e.target.value/100)};
+  $('#alpha').oninput=function(e){root.setProperty('--a',e.target.value/100);if(window.GadgetAutoColor)window.GadgetAutoColor.update()};
+  /* ガラスの暗さ（すべてのカードに黒い膜）と、自動で暗くする上限 */
+  $('#dim').oninput=function(e){
+    root.setProperty('--dim',e.target.value/100);$('#oDim').textContent=e.target.value+'%';
+    if(window.GadgetAutoColor)window.GadgetAutoColor.update();
+  };
+  $('#autoCap').oninput=function(e){
+    $('#oCap').textContent=e.target.value+'%';
+    if(window.GadgetAutoColor)window.GadgetAutoColor.update();
+  };
   $('#blur').oninput=function(e){root.setProperty('--b',e.target.value+'px')};
   COLOR_KEYS.forEach(function(k){
     $('#c_'+k).oninput=function(e){S.colors[k]=e.target.value;applyColors()};
@@ -734,8 +757,8 @@ html,body{overflow-x:hidden;overflow-y:auto}
 
   /* ---------- 文字の色（項目ごと） ---------- */
   var Cc={};
-  var TCV={time:'--c-time',date:'--c-date',temp:'--c-temp',hum:'--c-hum',sub:'--c-sub',cpu:'--c-cpu',gpu:'--c-gpu',ram:'--c-ram',temp2:'--c-temp2',rx:'--c-rx',tx:'--c-tx'};
-  var TCN=[['time','時計（時刻）'],['date','日付'],['temp','気温'],['hum','湿度'],['sub','場所・更新時刻・説明'],['cpu','CPU'],['gpu','GPU'],['ram','RAM'],['temp2','温度（CPU・GPU）'],['rx','受信'],['tx','送信']];
+  var TCV={time:'--c-time',date:'--c-date',temp:'--c-temp',hum:'--c-hum',sub:'--c-sub',rsub:'--c-rsub',cpu:'--c-cpu',gpu:'--c-gpu',ram:'--c-ram',temp2:'--c-temp2',rx:'--c-rx',tx:'--c-tx'};
+  var TCN=[['time','時計（時刻）'],['date','日付'],['temp','気温'],['hum','湿度'],['sub','場所・天気・更新時刻'],['rsub','レーダーの説明・出典'],['cpu','CPU'],['gpu','GPU'],['ram','RAM'],['temp2','温度（CPU・GPU）'],['rx','受信'],['tx','送信']];
   var tcHtml='';
   TCN.forEach(function(n){
     tcHtml+='<label>'+n[1]+' <span class="rv"><input type="color" data-tc="'+n[0]+'" value="#ffffff"><button class="btn" type="button" data-tcreset="'+n[0]+'">戻す</button></span></label>';
@@ -804,6 +827,8 @@ html,body{overflow-x:hidden;overflow-y:auto}
       if(r){r.checked=true;r.dispatchEvent(new Event('change',{bubbles:true}))}
     });
     Cc=o.tc||{};
+    /* 前の版の「場所・更新時刻・説明」の色は、分けた2つの両方に引き継ぐ */
+    if(Cc.sub&&!Cc.rsub)Cc.rsub=Cc.sub;
     Object.keys(Cc).forEach(function(k){var e=document.querySelector('[data-tc='+k+']');if(e)e.value=Cc[k]});
     applyTc();
   }
@@ -1149,7 +1174,9 @@ html,body{overflow-x:hidden;overflow-y:auto}
       x.drawImage(img,dx,dy,dw,dh);
       x.filter='none';
       var out=document.createElement('canvas');out.width=cw;out.height=ch;
-      out.getContext('2d').drawImage(c,m,m,cw,ch,0,0,cw,ch);
+      var ox2=out.getContext('2d',{willReadFrequently:true});
+      ox2.drawImage(c,m,m,cw,ch,0,0,cw,ch);
+      try{G.px=ox2.getImageData(0,0,cw,ch);G.pw=cw;G.ph=ch}catch(e){G.px=null}
       return new Promise(function(ok){
         out.toBlob(function(b){
           if(G.url)URL.revokeObjectURL(G.url);
@@ -1178,8 +1205,123 @@ html,body{overflow-x:hidden;overflow-y:auto}
       c.style.setProperty('--bgx',(-(ox+r.left)/z)+'px');
       c.style.setProperty('--bgy',(-(oy+r.top)/z)+'px');
     });
+    autoColor();
   }
   function schedule(){if(!raf)raf=requestAnimationFrame(place)}
+
+  /* ---------- 文字色の自動（カードの後ろの明るさから、白か黒を選ぶ） ---------- */
+  var AC={on:!!window.GADGET_AUTOFG,state:{}};
+  var DARK=[20,33,61];
+  function lin(c){c/=255;return c<=.04045?c/12.92:Math.pow((c+.055)/1.055,2.4)}
+  function lum(r,g,b){return .2126*lin(r)+.7152*lin(g)+.0722*lin(b)}
+  var LD=lum(DARK[0],DARK[1],DARK[2]);
+  function contrast(a,b){var hi=Math.max(a,b),lo=Math.min(a,b);return (hi+.05)/(lo+.05)}
+  /* 天気カードのレーダーの下（説明・出典）は、上とは別に判定する */
+  function radarLower(){return [].slice.call(document.querySelectorAll('#radarBox .prog,#radarBox .rinfo,#radarBox .attr'))}
+  function clearAuto(){
+    cards.concat(radarLower()).forEach(function(c){
+      ['--fg','--muted','--track','--scrimimg'].forEach(function(v){c.style.removeProperty(v)});
+      c.classList.remove('lowc-light','lowc-dark');
+    });
+    if(window.GadgetNet)window.GadgetNet.draw();
+    AC.state={};
+  }
+  function applyTone(els,tone,low){
+    var dark=tone==='dark';
+    els.forEach(function(c){
+      c.style.setProperty('--fg',dark?'#14213D':'#ffffff');
+      /* 控えめな文字（説明・GPU名など）も、自動のときは少し濃くする */
+      c.style.setProperty('--muted',dark?'rgba(20,33,61,.86)':'rgba(255,255,255,.88)');
+      c.style.setProperty('--track',dark?'rgba(20,33,61,.16)':'rgba(255,255,255,.22)');
+      c.classList.toggle('lowc-light',low&&!dark);
+      c.classList.toggle('lowc-dark',low&&dark);
+    });
+  }
+  function scrimColor(tone,s){return s>0.005?(tone==='dark'?'rgba(255,255,255,':'rgba(0,0,0,')+s.toFixed(3)+')':'transparent'}
+  /* 目標のコントラスト比（読みやすさの基準。本文は4.5、大きな文字は3。小さな文字も多いので4にする） */
+  var TARGET=4,CAP=0.5;
+  function readCap(){var e=document.getElementById('autoCap');var v=e?+e.value/100:.5;return isFinite(v)?Math.max(0,Math.min(.8,v)):.5}
+  /* 膜の濃さ s をかけたときの、明るいほう（白文字なら）／暗いほう（黒文字なら）上位15%の点でのコントラスト比 */
+  function score(tone,s,px){
+    var Ls=px.map(function(c){
+      var r,g,b;
+      if(tone==='light'){r=c[0]*(1-s);g=c[1]*(1-s);b=c[2]*(1-s)}
+      else{r=c[0]+(255-c[0])*s;g=c[1]+(255-c[1])*s;b=c[2]+(255-c[2])*s}
+      return lum(r,g,b);
+    }).sort(function(a,b){return a-b});
+    var i=Math.floor(Ls.length*.15);
+    return tone==='light'?contrast(1,Ls[Ls.length-1-i]):contrast(LD,Ls[i]);
+  }
+  /* 目標に届く、いちばん薄い膜（届かなければ上限） */
+  function solve(tone,px){
+    for(var s=0;s<=CAP+1e-9;s+=0.025){var sc=score(tone,s,px);if(sc>=TARGET)return {s:s,c:sc}}
+    return {s:CAP,c:score(tone,CAP,px)};
+  }
+  /* カードを、文字のある領域に分ける。レーダーを出している天気カードは、地図より上と下の2つ（地図の部分は、後ろの壁紙が見えないので測らない） */
+  function zonesOf(c){
+    var r=c.getBoundingClientRect();
+    if(c.id==='wxCard'){
+      var box=document.getElementById('radarBox'),map=box&&box.querySelector('.mapWrap');
+      var m=map&&box.style.display!=='none'?map.getBoundingClientRect():null;
+      if(m&&m.height>0&&m.top>r.top&&m.bottom<r.bottom){
+        return [{top:r.top,bottom:m.top,els:[c],key:c.id},{top:m.bottom,bottom:r.bottom,els:radarLower(),key:c.id+':lower'}];
+      }
+    }
+    return [{top:r.top,bottom:r.bottom,els:[c],key:c.id}];
+  }
+  function autoColor(){
+    if(!AC.on)return;
+    /* 壁紙が使えないとき（単色の半透明表示）は、暗い地なので白 */
+    if(!G.on||!G.px||!G.geo||body.classList.contains('pg-fallback')){
+      cards.forEach(function(c){applyTone([c],'light',false);c.style.removeProperty('--scrimimg')});
+      applyTone(radarLower(),'light',false);
+      if(window.GadgetNet)window.GadgetNet.draw();
+      return;
+    }
+    var pref=(document.getElementById('autoPref')||{}).value||'white';
+    var sc=G.geo.scale,Wl=G.geo.mon_w/sc,k=G.pw/Wl;
+    var ox=(G.pos.x-G.geo.mon_x)/sc,oy=(G.pos.y-G.geo.mon_y)/sc;
+    var a=parseFloat(getComputedStyle(root).getPropertyValue('--a'));if(!isFinite(a))a=.16;
+    var dim=parseFloat(getComputedStyle(root).getPropertyValue('--dim'));if(!isFinite(dim))dim=0;
+    CAP=readCap();
+    var d=G.px.data,pw=G.pw,ph=G.ph;
+    var ok=function(x){return x.c>=TARGET};
+    cards.forEach(function(c){
+      if(c.style.display==='none')return;
+      var r=c.getBoundingClientRect(),zs=zonesOf(c),stops=[];
+      zs.forEach(function(z,zi){
+        var px=[],rows=Math.max(3,Math.min(8,Math.round((z.bottom-z.top)/20)));
+        /* 領域の中を 10×（高さに応じて3〜8）点で測る。ガラスの白い膜と、手動の暗さを重ねた色で */
+        for(var i=0;i<10;i++)for(var j=0;j<rows;j++){
+          var x=Math.floor((ox+r.left+r.width*(i+.5)/10)*k),y=Math.floor((oy+z.top+(z.bottom-z.top)*(j+.5)/rows)*k);
+          x=Math.max(0,Math.min(pw-1,x));y=Math.max(0,Math.min(ph-1,y));
+          var p=(y*pw+x)*4;
+          px.push([(d[p]*(1-a)+255*a)*(1-dim),(d[p+1]*(1-a)+255*a)*(1-dim),(d[p+2]*(1-a)+255*a)*(1-dim)]);
+        }
+        var W=solve('light',px),B=solve('dark',px),prev=AC.state[z.key],tone;
+        if(pref==='white')tone=ok(W)||!ok(B)&&W.c>=B.c?'light':'dark';
+        else if(pref==='dark')tone=ok(B)||!ok(W)&&B.c>=W.c?'dark':'light';
+        else tone=(ok(W)&&ok(B))?(W.s<=B.s?'light':'dark'):(W.c>=B.c?'light':'dark');
+        /* 境目でちらつかないよう、前の色でも目標に届くなら、そのまま */
+        if(prev&&prev!==tone&&ok(prev==='light'?W:B)&&pref==='none')tone=prev;
+        AC.state[z.key]=tone;
+        var R=tone==='light'?W:B;
+        applyTone(z.els,tone,R.c<TARGET);
+        /* ガラスの調整は、領域ごとに縦の帯で変える（地図の上端で切り替える） */
+        var from=zi===0?0:(z.top-r.top)/r.height*100;
+        stops.push({from:from,color:scrimColor(tone,R.s)});
+      });
+      var parts=[];
+      stops.forEach(function(st,i){
+        var to=i+1<stops.length?stops[i+1].from:100;
+        parts.push(st.color+' '+st.from.toFixed(2)+'%',st.color+' '+to.toFixed(2)+'%');
+      });
+      c.style.setProperty('--scrimimg','linear-gradient(to bottom,'+parts.join(',')+')');
+    });
+    if(window.GadgetNet)window.GadgetNet.draw();
+  }
+  var ap=document.getElementById('autoPref');
+  if(ap)ap.addEventListener('change',function(){AC.state={};autoColor()});
 
   function refreshGeometry(){
     return T.core.invoke('get_window_geometry').then(function(g){
@@ -1198,6 +1340,7 @@ html,body{overflow-x:hidden;overflow-y:auto}
     }).catch(function(e){
       body.classList.add('pg-fallback');
       say('擬似ガラスを使えませんでした: '+String(e));
+      autoColor();
     });
   }
 
@@ -1225,6 +1368,11 @@ html,body{overflow-x:hidden;overflow-y:auto}
     if(el){el.addEventListener('input',schedule);el.addEventListener('change',schedule)}
   });
 
+  window.GadgetAutoColor={
+    set:function(on){AC.on=!!on;if(on)autoColor();else clearAuto()},
+    update:function(){if(AC.on)autoColor()},
+    _state:AC
+  };
   window.GadgetGlass={
     set:function(on){
       G.on=on;

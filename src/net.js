@@ -33,7 +33,7 @@
     x.setTransform(bw/w,0,0,bh/h,0,0);
     x.clearRect(0,0,w,h);
     /* 下地（使用量の棒と同じ薄い白） */
-    x.fillStyle='rgba(255,255,255,.14)';
+    x.fillStyle=getComputedStyle(cv).getPropertyValue('--track').trim()||'rgba(255,255,255,.22)';
     x.beginPath();if(x.roundRect)x.roundRect(0,0,w,h,8);else x.rect(0,0,w,h);x.fill();
     if(data.length<2)return;
     /* 目盛りは自動。最低でも 1Mbps（125KB/s）を上端にして、小さな通信が大げさに見えないようにする */
