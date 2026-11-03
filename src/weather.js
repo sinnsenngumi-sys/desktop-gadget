@@ -10,6 +10,8 @@
 (function(){
   'use strict';
   var T=window.__TAURI__, C=window.GadgetCore, S=C.S;
+  /* 設定画面の窓では、場所の検索と地域の選択だけを動かす（天気の取得とレーダーは、ガジェットの窓が行う） */
+  var SET=!!window.GADGET_SETTINGS;
   var $=function(s){return document.querySelector(s)};
   var pad=function(n){return String(n).padStart(2,'0')};
   var inv=function(cmd,args){return T.core.invoke(cmd,args||{})};
@@ -53,14 +55,14 @@
     $('#locResults').innerHTML='';
     W.wx=null;W.wxAt=0;W.warn=null;W.frames=[];W.geoKey='';
     renderLoc();save();
-    if(!T){refreshAll(true);return}
+    if(!T){if(!SET)refreshAll(true);return}
     inv('wx_find_area',{lat:lat,lon:lon}).then(function(info){
       if(!name)$('#locName').value=info.name;
       fillAreas(info);W.warnErr=info.note||'';
     }).catch(function(e){
       var sel=$('#areaSel');sel.innerHTML='';sel.add(new Option('（この場所では選べません）',''));
       W.warnErr='警報の地域を決められませんでした: '+errText(e);
-    }).then(function(){save();renderLoc();note();refreshAll(true)});
+    }).then(function(){save();renderLoc();note();if(!SET)refreshAll(true)});
   }
   $('#locSearch').onclick=function(){
     var q=$('#locQuery').value.trim(),box=$('#locResults');
@@ -327,7 +329,7 @@
   /* 地図とコマを作り直す（場所・範囲・地図の色・大きさが変わったとき、新しいコマが来たとき） */
   var gen=0;
   function rebuild(){
-    if(!S.radar)return;
+    if(SET||!S.radar)return;
     var p=loc();
     if(!Wd){return}
     if(!p){msg('場所を設定すると表示します');draw();return}
@@ -420,7 +422,7 @@
   var tW=null,tR=null,tA=null;
   function schedule(){
     clearInterval(tW);clearInterval(tR);clearInterval(tA);
-    if(C.stopped())return;
+    if(SET||C.stopped())return;
     var mult=S.power==='battery'?C.opt().mult:1;
     tW=setInterval(function(){fetchWeather();fetchWarnings();renderWeather()},intervalMin()*60000);
     if(S.radar){
@@ -430,6 +432,7 @@
   }
   var lastAll=0;
   function refreshAll(force){
+    if(SET)return;
     /* ゲーム終了・スリープ復帰・起動時。同じ操作で続けて呼ばれたときだけ、10秒以内の重複を省く */
     if(!force&&Date.now()-lastAll<10000){renderWeather();renderWarns();return}
     lastAll=Date.now();
@@ -454,9 +457,25 @@
       if(S.radar){requestAnimationFrame(function(){resize();fetchRadar(false)})}
     },
     mapChanged:function(){legend();if(S.radar)resize()},
+    /* 設定画面で変わった設定を取り込んだあと。場所が変わっていたら、取り直す */
+    settingsReloaded:function(){
+      var k=locKey();
+      renderLoc();
+      if(SET||k===lastLocKey){renderWeather();renderWarns();return}
+      lastLocKey=k;
+      W.wx=null;W.wxAt=0;W.warn=null;W.frames=[];W.geoKey='';W.base=null;
+      var code=$('#areaSel').value;
+      if(T&&code)inv('wx_area_info',{code:code}).then(fillAreas).catch(function(){});
+      renderWeather();renderWarns();
+      refreshAll(true);
+      if(S.radar)resize();
+    },
     /* 試験用 */
     _state:W
   };
+
+  function locKey(){var p=loc();return p?p.lat+','+p.lon+'|'+$('#areaSel').value:''}
+  var lastLocKey=locKey();
 
   /* ---------- 起動 ---------- */
   S.warnOn=$('#warnOn').checked;S.warnSet=$('#warnSel').value;S.radar=$('#radarOn').checked;S.map=$('#mapSel').value;
@@ -466,6 +485,10 @@
     inv('wx_sources').then(function(s){$('#wxSrc').textContent='取得先の設定ファイル: '+s.path+(s.note?'\n'+s.note:'');$('#wxSrc').style.whiteSpace='pre-line'}).catch(function(){});
     var code=$('#areaSel').value;
     if(code)inv('wx_area_info',{code:code}).then(fillAreas).catch(function(e){W.warnErr=errText(e);note()});
+  }
+  if(SET){
+    /* 設定画面では、警報の地域の名前と一覧だけ用意する */
+    return;
   }
   schedule();
   refreshAll(true);

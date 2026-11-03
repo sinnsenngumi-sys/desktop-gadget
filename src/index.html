@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DesktopGadget</title>
+<script>
+/* フェーズ5：同じ画面を、ガジェット（main）と設定画面（settings）の2つの窓で使う */
+window.GADGET_SETTINGS=(function(){
+  try{if(window.__TAURI__)return window.__TAURI__.window.getCurrentWindow().label==='settings'}catch(e){}
+  return /[?&]settings=1/.test(location.search);
+})();
+document.documentElement.classList.toggle('settings-mode',window.GADGET_SETTINGS);
+</script>
 <style>
 :root{
   --a:.16; --b:20px; --fg:#ffffff;
@@ -127,11 +135,25 @@ body{
 .note{font-size:12px;color:#9fb3d9;margin-top:14px;line-height:1.6}
 @media (max-width:820px){.stage{padding:14px}.panel{width:100%}}
 
-.bar{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 14px;font-size:12px;color:#fff}
-.bar .grip{opacity:.8;cursor:move;flex:1;padding:6px 0;user-select:none}
-.bar button{background:rgba(0,0,0,.45);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:4px 8px;font-size:12px;cursor:pointer}
-.bar button.on{background:#fff;color:#14213D;font-weight:700}
-.fxmsg{position:relative;z-index:2;padding:0 14px;font-size:12px;color:#fff;min-height:16px;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+.topbar{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 14px;font-size:12px;color:#fff;opacity:0;transition:opacity .2s}
+#app:hover .topbar{opacity:1}
+.topbar .grip{cursor:move;flex:1;padding:5px 10px;user-select:none;border-radius:8px;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.3)}
+.topbar button{background:rgba(0,0,0,.45);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer}
+/* 位置を固定しているときは、移動のつまみを出さない */
+.locked .topbar .grip{visibility:hidden}
+/* 設定画面の窓: カードを隠し、設定だけを普通の窓として出す */
+.settings-mode body{background:#121a30;overflow-y:auto}
+.settings-mode .topbar,.settings-mode .fxmsg,.settings-mode .stack,.settings-mode .wall{display:none!important}
+.settings-mode #app{display:block;width:auto}
+.settings-mode .stage{padding:0;display:block}
+.settings-mode .panel{display:block!important;width:auto;max-height:none;border:none;border-radius:0;background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;padding:18px 22px 28px}
+.settings-mode ::-webkit-scrollbar{width:10px}
+.settings-mode ::-webkit-scrollbar-thumb{background:#3a4568;border-radius:5px}
+.panel .actions{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.panel .ok{font-size:12px;color:#9ae6b4;margin:6px 0 0;line-height:1.5;white-space:pre-line;word-break:break-all}
+.panel .ok:empty{display:none}
+.fxmsg{position:relative;z-index:2;padding:0 14px;font-size:12px;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+.fxmsg:empty{display:none}
 
 #app{display:inline-block;vertical-align:top;width:max-content}
 /* 試作ページ用の「幅が狭いと1列に戻す」指定は、アプリでは無効にする（窓の幅は中身に合わせて変わるため） */
@@ -153,17 +175,9 @@ html,body{overflow-x:hidden;overflow-y:auto}
 <body>
 
 <div id="app">
-<div class="bar">
-  <span class="grip" data-tauri-drag-region>ここをドラッグして移動</span>
-  <span>
-    <button data-fx="glass" class="on">擬似ガラス</button>
-    <button data-fx="none">なし</button>
-    <button data-fx="acrylic">アクリル</button>
-    <button data-fx="blur">ブラー</button>
-    <button data-fx="mica">Mica</button>
-    <button id="togglePanel">設定</button>
-    <button id="closeBtn">×</button>
-  </span>
+<div class="topbar">
+  <span class="grip" data-tauri-drag-region title="ドラッグして移動">⠿ ドラッグして移動</span>
+  <button id="togglePanel" type="button" title="設定を開く">⚙ 設定</button>
 </div>
 <div class="fxmsg" id="fxmsg"></div>
 
@@ -226,8 +240,24 @@ html,body{overflow-x:hidden;overflow-y:auto}
   </section>
 
   <aside class="panel" id="panel" style="display:none">
-    <h2>設定（試作用）</h2>
-    <div style="color:#9fb3d9;font-size:12px">いまは試験用です。あとでトレイアイコンから開く設定画面になります。</div>
+    <h2>設定</h2>
+    <div style="color:#9fb3d9;font-size:12px">変更は、すぐにガジェットに反映して保存します。</div>
+
+    <h3>全般</h3>
+    <label>デスクトップでの置き方
+      <select id="deskMode"><option value="attach" selected>デスクトップに付ける（Win+Dでも残す）</option><option value="normal">通常の窓（最背面）</option></select>
+    </label>
+    <label>位置を固定する <input type="checkbox" id="lockPos"></label>
+    <label>表示するモニター
+      <span class="rv"><select id="monSel" data-nosave><option value="">（読み込み中）</option></select><button class="btn" id="monMove" type="button">移動</button></span>
+    </label>
+    <div class="sub">位置（画面の左上からのピクセル）</div>
+    <div class="two"><input type="text" id="posX" placeholder="X" data-nosave><input type="text" id="posY" placeholder="Y" data-nosave><button class="btn" id="posMove" type="button">移動</button><button class="btn" id="posReset" type="button">左上に戻す</button></div>
+    <label>ログイン時に自動で起動 <input type="checkbox" id="autoStart" data-nosave></label>
+    <div class="sub">設定のファイル</div>
+    <div class="actions"><button class="btn" id="cfgExport" type="button">書き出す…</button><button class="btn" id="cfgImport" type="button">読み込む…</button></div>
+    <div class="ok" id="sysOk"></div>
+    <div class="hint" id="sysNote"></div>
 
     <h3>外観</h3>
     <label>文字色
@@ -526,7 +556,7 @@ html,body{overflow-x:hidden;overflow-y:auto}
   var usageTimer=null;
   function startUsage(){
     clearInterval(usageTimer);
-    if(S.power==='game')return;
+    if(S.power==='game'||window.GADGET_SETTINGS)return;   /* 設定画面の窓では使用量を取らない */
     var sec=+$('#usageSec').value||1,mult=S.power==='battery'?(+$('#batMult').value||2):1;
     usageTimer=setInterval(stepUsage,sec*mult*1000);
   }
@@ -594,8 +624,10 @@ html,body{overflow-x:hidden;overflow-y:auto}
     b.onclick=function(){delete Cc[b.dataset.tcreset];applyTc();save()};
   });
 
-  /* ---------- 設定の保存と復元（この端末の中だけ） ---------- */
-  var KEY='desktopGadget.v1';
+  /* ---------- 設定の保存と復元 ----------
+     保存先は設定ファイル（%APPDATA%\local.desktopgadget\settings.json）。
+     ガジェットと設定画面の2つの窓は、同じ localStorage と「settings-changed」の知らせで、互いの変更を取り込む */
+  var KEY='desktopGadget.v1',loading=false,SETTINGS=!!window.GADGET_SETTINGS,ME=SETTINGS?'settings':'main';
   function collect(){
     var o={v:{},r:{},tc:Cc};
     document.querySelectorAll('.panel input[id]:not([data-nosave]),.panel select[id]').forEach(function(e){
@@ -606,8 +638,24 @@ html,body{overflow-x:hidden;overflow-y:auto}
     });
     return o;
   }
-  function save(){try{localStorage.setItem(KEY,JSON.stringify(collect()))}catch(e){}}
+  var persistT=null;
+  function save(){
+    if(loading)return;   /* 読み込みの途中に起きた変更は、保存し直さない（窓どうしで往復しないように） */
+    var s=JSON.stringify(collect());
+    try{localStorage.setItem(KEY,s)}catch(e){}
+    var TT=window.__TAURI__;
+    if(!TT)return;
+    clearTimeout(persistT);
+    persistT=setTimeout(function(){
+      TT.core.invoke('settings_write',{json:s}).catch(function(e){var n=document.getElementById('sysNote');if(n)n.textContent='設定を保存できませんでした: '+e});
+      if(TT.event)TT.event.emit('settings-changed',{from:ME}).catch(function(){});
+    },250);
+  }
   function load(){
+    loading=true;
+    try{loadInner()}finally{loading=false}
+  }
+  function loadInner(){
     var o=null;
     try{o=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){}
     if(!o)return;
@@ -631,7 +679,18 @@ html,body{overflow-x:hidden;overflow-y:auto}
   }
   document.querySelector('.panel').addEventListener('input',save);
   document.querySelector('.panel').addEventListener('change',save);
-  window.GadgetSettings={load:load,save:save};
+  /* ほかの窓で設定が変わったら、取り込み直す */
+  var reT=null;
+  function reloadFromStore(){
+    clearTimeout(reT);
+    reT=setTimeout(function(){
+      load();
+      if(window.GadgetWx&&window.GadgetWx.settingsReloaded)window.GadgetWx.settingsReloaded();
+      applyMode(false);
+    },60);
+  }
+  window.addEventListener('storage',function(e){if(e.key===KEY)reloadFromStore()});
+  window.GadgetSettings={load:load,save:save,reload:reloadFromStore,isSettingsWindow:SETTINGS};
   window.GadgetCore={S:S,opt:function(){return opt()},stopped:function(){return S.power==='game'}};
 
   /* ---------- 動作状態（§7）：電源・ゲーム中・ロックを実測し、更新間隔を変える ---------- */
@@ -688,7 +747,10 @@ html,body{overflow-x:hidden;overflow-y:auto}
     /* ゲーム・ロックの終わりとスリープ復帰では、全項目をすぐ1回更新する */
     if(!stopped&&(wasStopped||force)){refreshWeather();stepUsage()}
   }
-  document.querySelectorAll('input[name=power]').forEach(function(r){r.onchange=function(){P.override=r.value;applyMode(false)}});
+  document.querySelectorAll('input[name=power]').forEach(function(r){r.onchange=function(){
+    P.override=r.value;applyMode(false);
+    if(window.__TAURI__&&window.__TAURI__.event&&!loading)window.__TAURI__.event.emit('power-override',{from:ME,value:r.value}).catch(function(){});
+  }});
   ['gameAction','batMult','clockBat1s','saverBat','lockStop','usageSec'].forEach(function(id){
     $('#'+id).addEventListener('change',function(){applyMode(false)});
   });
@@ -718,6 +780,35 @@ html,body{overflow-x:hidden;overflow-y:auto}
   $('#radarBox').style.display='none';
   applyTc();
   load();
+  if(T){
+    T.core.invoke('settings_read').then(function(f){
+      var cur=null;try{cur=localStorage.getItem(KEY)}catch(e){}
+      if(f&&f!==cur){try{localStorage.setItem(KEY,f)}catch(e){}reloadFromStore()}
+      else if(!f&&!SETTINGS){save()}   /* 初回: 設定ファイルを作る */
+    }).catch(function(){});
+    if(T.event){   /* 窓どうしの知らせ。用意できなくても、ほかの起動処理は続ける */
+    T.event.listen('settings-changed',function(e){if(!e.payload||e.payload.from!==ME)reloadFromStore()});
+    /* 動作状態の試験（固定）は保存しないので、窓どうしで直接知らせる */
+    T.event.listen('power-override',function(e){
+      if(!e.payload||e.payload.from===ME)return;
+      P.override=e.payload.value;
+      var r=document.querySelector('input[name=power][value="'+P.override+'"]');if(r)r.checked=true;
+      applyMode(false);
+    });
+    if(!SETTINGS){
+      /* トレイのメニュー（時計の切替、位置の固定） */
+      T.event.listen('tray',function(e){
+        var v=e.payload;
+        if(v==='digital'||v==='analog'){
+          var r=document.querySelector('input[name=mode][value='+v+']');
+          if(r){r.checked=true;r.dispatchEvent(new Event('change',{bubbles:true}))}
+        }else if(v==='lock'){
+          var c=$('#lockPos');c.checked=!c.checked;c.dispatchEvent(new Event('change',{bubbles:true}));
+        }
+      });
+    }
+    }
+  }
   /* 前の版では「自動」が保存されている。一度だけ、新しい既定の「すべて」に切り替える */
   try{
     if(!localStorage.getItem('desktopGadget.gpuAll')){
@@ -738,27 +829,94 @@ html,body{overflow-x:hidden;overflow-y:auto}
 
 <script>
 (function(){
-  var T=window.__TAURI__;
+  var T=window.__TAURI__,SET=!!window.GADGET_SETTINGS;
+  var $=function(q){return document.querySelector(q)};
   var msg=document.getElementById('fxmsg');
-  if(!T){msg.textContent='（ブラウザで開いています。ぼかしの切替はアプリ内でのみ動きます）';}
-  document.querySelectorAll('[data-fx]').forEach(function(b){
-    b.onclick=function(){
-      if(!T){return}
-      var kind=b.dataset.fx;
-      if(window.GadgetGlass)window.GadgetGlass.set(kind==='glass');
-      T.core.invoke('set_effect',{kind:kind==='glass'?'none':kind}).then(function(r){
-        msg.textContent=r;
-        document.querySelectorAll('[data-fx]').forEach(function(x){x.classList.toggle('on',x===b)});
-      }).catch(function(e){msg.textContent=String(e)});
-    };
+  var inv=function(c,a){return T.core.invoke(c,a||{})};
+  function ok(t){$('#sysOk').textContent=t||''}
+  function ng(t){$('#sysNote').textContent=t||''}
+  function save(){if(window.GadgetSettings)window.GadgetSettings.save()}
+
+  /* 「設定」: アプリでは設定画面の窓を開く。ブラウザでは、この画面の中に出す（確認用） */
+  $('#togglePanel').onclick=function(){
+    if(T){inv('open_settings').catch(function(e){msg.textContent=String(e)});return}
+    var p=$('#panel');p.style.display=p.style.display==='none'?'':'none';
+  };
+
+  /* ---------- フェーズ5：常駐化の設定（§6・§7） ---------- */
+  /* デスクトップでの置き方・位置の固定は、ガジェットの窓が受け取って反映する */
+  var deskApplied='attach';   /* 起動時、アプリは「デスクトップに付ける」で始まる */
+  $('#deskMode').addEventListener('change',function(e){
+    if(!T||SET||e.target.value===deskApplied)return;
+    deskApplied=e.target.value;
+    inv('set_desktop_mode',{mode:e.target.value}).catch(function(err){msg.textContent=String(err)});
   });
-  document.getElementById('togglePanel').onclick=function(){
-    var p=document.getElementById('panel');
-    p.style.display=p.style.display==='none'?'':'none';
+  $('#lockPos').addEventListener('change',function(e){
+    document.documentElement.classList.toggle('locked',e.target.checked);
+    if(!SET)save();
+  });
+
+  /* モニターと位置（設定画面から、ガジェットの窓を動かす） */
+  function fillMonitors(){
+    if(!T)return;
+    inv('list_monitors').then(function(ms){
+      var sel=$('#monSel');sel.innerHTML='';
+      ms.forEach(function(m){
+        sel.add(new Option(String(m.name).replace(/^\\\\\.\\/,'')+'（'+m.width+'×'+m.height+(m.primary?'、メイン':'')+(m.current?'、いまここ':'')+'）',String(m.index)));
+        if(m.current)sel.value=String(m.index);
+      });
+    }).catch(function(e){ng('モニターの一覧を取得できませんでした: '+e)});
+  }
+  $('#monMove').onclick=function(){
+    if(!T||$('#monSel').value==='')return;
+    inv('move_to_monitor',{index:+$('#monSel').value}).then(function(){ok('ガジェットを移動しました');setTimeout(fillMonitors,600)}).catch(function(e){ng(String(e))});
   };
-  document.getElementById('closeBtn').onclick=function(){
-    if(T){T.window.getCurrentWindow().close()}
+  $('#posMove').onclick=function(){
+    var x=parseInt($('#posX').value,10),y=parseInt($('#posY').value,10);
+    if(!isFinite(x)||!isFinite(y)){ng('X・Yは整数で入れてください');return}
+    if(T)inv('move_window',{x:x,y:y}).then(function(){ok('ガジェットを ('+x+', '+y+') に移動しました');ng('')}).catch(function(e){ng(String(e))});
   };
+  $('#posReset').onclick=function(){
+    if(T)inv('reset_position').then(function(){ok('左上に戻しました');setTimeout(fillMonitors,600)}).catch(function(e){ng(String(e))});
+  };
+
+  /* 自動起動（保存先はWindowsの登録。設定ファイルには入れない） */
+  function showAuto(a){
+    $('#autoStart').checked=a.on;
+    if(a.on&&a.other_exe)ng('自動起動には、別の場所の実行ファイルが登録されています。いま動いているものにするには、オフにしてからオンにしてください');
+  }
+  if(T&&SET)inv('autostart_get').then(showAuto).catch(function(e){ng('自動起動の状態を読めませんでした: '+e)});
+  $('#autoStart').addEventListener('change',function(e){
+    if(!T)return;
+    inv('autostart_set',{on:e.target.checked}).then(function(a){showAuto(a);ok(a.on?'ログイン時に起動します（'+a.exe+'）':'自動起動を解除しました')})
+      .catch(function(err){ng(String(err));e.target.checked=!e.target.checked});
+  });
+
+  /* 設定の書き出し・読み込み */
+  $('#cfgExport').onclick=function(){
+    if(!T)return;
+    var s=null;try{s=localStorage.getItem('desktopGadget.v1')}catch(e){}
+    if(!s){ng('書き出す設定がまだありません');return}
+    inv('settings_export',{json:s}).then(function(p){if(p)ok('書き出しました: '+p)}).catch(function(e){ng(String(e))});
+  };
+  $('#cfgImport').onclick=function(){
+    if(!T)return;
+    inv('settings_import').then(function(s){
+      if(!s)return;
+      try{localStorage.setItem('desktopGadget.v1',s)}catch(e){}
+      window.GadgetSettings.reload();
+      if(T.event)T.event.emit('settings-changed',{from:'import'}).catch(function(){});
+      ok('読み込みました。ガジェットにも反映しました');ng('');
+    }).catch(function(e){ng(String(e))});
+  };
+
+  if(T&&SET){
+    fillMonitors();
+    inv('settings_dir').then(function(d){ok('設定の保存先: '+d)}).catch(function(){});
+    window.addEventListener('focus',fillMonitors);
+  }
+  if(SET)return;   /* 設定画面の窓では、ここから下（窓の大きさ合わせ）は使わない */
+
   /* 窓の大きさを、カードの合計に合わせる（スクロールを出さない）。
      高さが画面に収まらないときは、(1) 横2列に並べ替え、(2) それでも足りなければ縮小する */
   var app=document.getElementById('app'),stage=document.querySelector('.stage'),panel=document.getElementById('panel');
@@ -812,7 +970,7 @@ html,body{overflow-x:hidden;overflow-y:auto}
 /* 擬似ガラス：壁紙をぼかして、各カードの背景に、窓の位置に合わせて敷く */
 (function(){
   var T=window.__TAURI__;
-  if(!T)return;
+  if(!T||window.GADGET_SETTINGS)return;
   var root=document.documentElement,body=document.body;
   var stage=document.querySelector('.stage');
   var cards=['clockCard','wxCard','usageCard'].map(function(id){return document.getElementById(id)});
@@ -944,6 +1102,17 @@ html,body{overflow-x:hidden;overflow-y:auto}
     }
   };
   start();
+
+  /* 壁紙が変わったら、作り直す（フェーズ5。30秒ごとに、壁紙のパスと更新時刻を比べる） */
+  var stamp=null;
+  setInterval(function(){
+    if(!G.on)return;
+    if(window.GadgetCore&&window.GadgetCore.stopped())return;
+    T.core.invoke('wallpaper_stamp').then(function(st){
+      if(stamp!==null&&st!==stamp){G.key='';G.wp=null;start()}
+      stamp=st;
+    }).catch(function(){});
+  },30000);
 })();
 
 </script>

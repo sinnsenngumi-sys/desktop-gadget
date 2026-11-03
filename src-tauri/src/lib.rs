@@ -1,5 +1,6 @@
 mod sysmon;
 mod sysstate;
+mod resident;
 mod weather;
 
 use base64::Engine as _;
@@ -262,11 +263,145 @@ fn wx_sources(net: NetState<'_>) -> SourcesInfo {
     SourcesInfo { path: net.src_path.clone(), note: net.src_note.clone() }
 }
 
+// ---------------------------------------------------------------
+// フェーズ5：常駐化（デスクトップに付ける、位置、設定ファイル、自動起動、設定画面）
+// ---------------------------------------------------------------
+
+/// "attach"（デスクトップに付ける。Win+Dでも残る）/ "normal"（通常の最背面の窓）
+#[tauri::command]
+fn set_desktop_mode(app: tauri::AppHandle, mode: String) -> Result<(), String> {
+    resident::apply_desktop_mode(&app, mode != "normal")
+}
+
+#[tauri::command]
+async fn open_settings(app: tauri::AppHandle) -> Result<(), String> {
+    resident::open_settings(&app)
+}
+
+#[tauri::command]
+fn settings_read(app: tauri::AppHandle) -> Option<String> {
+    resident::settings_read(&app)
+}
+
+#[tauri::command]
+fn settings_write(app: tauri::AppHandle, json: String) -> Result<(), String> {
+    resident::settings_write(&app, &json)
+}
+
+/// 設定の書き出し。保存先をダイアログで選ぶ。戻り値は保存したパス（取り消しは None）
+#[tauri::command]
+async fn settings_export(app: tauri::AppHandle, json: String) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    resident::valid_settings(&json)?;
+    let Some(fp) = app
+        .dialog()
+        .file()
+        .add_filter("設定ファイル（JSON）", &["json"])
+        .set_file_name("desktop-gadget-settings.json")
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    let pretty = serde_json::from_str::<serde_json::Value>(&json)
+        .ok()
+        .and_then(|v| serde_json::to_string_pretty(&v).ok())
+        .unwrap_or(json);
+    std::fs::write(&path, pretty).map_err(|e| format!("書き出せませんでした: {}", e))?;
+    Ok(Some(path.display().to_string()))
+}
+
+/// 設定の読み込み。ファイルをダイアログで選び、内容を確かめて保存する。戻り値は設定のJSON（取り消しは None）
+#[tauri::command]
+async fn settings_import(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(fp) = app.dialog().file().add_filter("設定ファイル（JSON）", &["json"]).blocking_pick_file() else {
+        return Ok(None);
+    };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("読めませんでした: {}", e))?;
+    resident::valid_settings(&text)?;
+    // 1行のJSONにそろえて保存する
+    let compact = serde_json::from_str::<serde_json::Value>(&text).map(|v| v.to_string()).map_err(|e| e.to_string())?;
+    resident::settings_write(&app, &compact)?;
+    Ok(Some(compact))
+}
+
+#[tauri::command]
+fn settings_dir(app: tauri::AppHandle) -> String {
+    resident::settings_dir(&app)
+}
+
+#[tauri::command]
+fn autostart_get() -> Result<resident::AutoStart, String> {
+    resident::autostart_get()
+}
+
+#[tauri::command]
+fn autostart_set(on: bool) -> Result<resident::AutoStart, String> {
+    resident::autostart_set(on)
+}
+
+#[tauri::command]
+fn list_monitors(app: tauri::AppHandle) -> Vec<resident::MonitorInfo> {
+    resident::monitors(&app)
+}
+
+#[tauri::command]
+fn move_to_monitor(app: tauri::AppHandle, index: usize) -> Result<(), String> {
+    resident::move_to_monitor(&app, index)
+}
+
+/// 座標を指定して動かす（物理ピクセル）
+#[tauri::command]
+fn move_window(app: tauri::AppHandle, x: i32, y: i32) -> Result<(), String> {
+    resident::move_main(&app, x, y)
+}
+
+#[tauri::command]
+fn reset_position(app: tauri::AppHandle) -> Result<(), String> {
+    resident::reset_position(&app)
+}
+
+/// 壁紙が変わったかを見るための目印（パスと更新時刻）。画面側が30秒ごとに比べる
+#[tauri::command]
+fn wallpaper_stamp() -> Result<String, String> {
+    let (path, style, tile, _) = read_wallpaper_settings()?;
+    let t = std::fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    Ok(format!("{}|{}|{}|{}", path, style, tile, t))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(UsageState(Mutex::new(None)))
+        .on_window_event(|window, event| {
+            // ガジェットを動かしたら、位置を覚える（保存は見張りのスレッドが、止まってから行う）
+            if let tauri::WindowEvent::Moved(p) = event {
+                if window.label() == "main" {
+                    if let Some(st) = window.app_handle().try_state::<resident::Resident>() {
+                        st.note_move(p.x, p.y);
+                    }
+                }
+            }
+        })
         .setup(|app| {
+            // 常駐化: 位置の復元、デスクトップに付ける、トレイ、見張り
+            let dir = app.path().app_config_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            app.manage(resident::Resident::new(dir));
+            resident::restore_position(app.handle());
+            if let Err(e) = resident::apply_desktop_mode(app.handle(), true) {
+                eprintln!("デスクトップに付けられませんでした: {}", e);
+            }
+            resident::build_tray(app)?;
+            resident::spawn_watcher(app.handle().clone());
+
             // 取得先の設定ファイル（%APPDATA%\local.desktopgadget\sources.json）
             let path = app
                 .path()
@@ -300,7 +435,21 @@ pub fn run() {
             wx_radar_times,
             wx_radar_tile,
             wx_base_tile,
-            wx_sources
+            wx_sources,
+            set_desktop_mode,
+            open_settings,
+            settings_read,
+            settings_write,
+            settings_export,
+            settings_import,
+            settings_dir,
+            autostart_get,
+            autostart_set,
+            list_monitors,
+            move_to_monitor,
+            move_window,
+            reset_position,
+            wallpaper_stamp
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
