@@ -1,0 +1,173 @@
+use base64::Engine as _;
+use serde::Serialize;
+use tauri::WebviewWindow;
+use window_vibrancy::{apply_acrylic, apply_blur, apply_mica, clear_acrylic, clear_blur, clear_mica};
+
+/// OSのぼかし効果の比較用。画面のボタンから呼ぶ。
+/// kind: "none" | "acrylic" | "blur" | "mica"
+#[tauri::command]
+fn set_effect(window: WebviewWindow, kind: String) -> Result<String, String> {
+    // いったん全部解除してから、選んだ方式だけをかける
+    let _ = clear_acrylic(&window);
+    let _ = clear_blur(&window);
+    let _ = clear_mica(&window);
+
+    let result = match kind.as_str() {
+        "acrylic" => apply_acrylic(&window, Some((18, 18, 18, 125))),
+        "blur" => apply_blur(&window, Some((18, 18, 18, 125))),
+        "mica" => apply_mica(&window, Some(true)),
+        _ => Ok(()),
+    };
+
+    result
+        .map(|_| format!("適用しました: {}", kind))
+        .map_err(|e| format!("適用できませんでした（{}）: {}", kind, e))
+}
+
+/// 窓の大きさを、カードの大きさに合わせる（画面側から、論理ピクセルで指定する）
+#[tauri::command]
+fn fit_window(window: WebviewWindow, width: f64, height: f64) -> Result<(), String> {
+    window
+        .set_size(tauri::LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------
+// 擬似ガラス用：壁紙とモニターの情報
+// ---------------------------------------------------------------
+
+/// モニターと窓の位置（すべて物理ピクセル）
+#[derive(Serialize)]
+struct Geometry {
+    mon_x: i32,
+    mon_y: i32,
+    mon_w: u32,
+    mon_h: u32,
+    scale: f64,
+    win_x: i32,
+    win_y: i32,
+}
+
+fn geometry_of(window: &WebviewWindow) -> Result<Geometry, String> {
+    let mon = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or("モニターの情報を取得できませんでした")?;
+    let pos = window.inner_position().map_err(|e| e.to_string())?;
+    Ok(Geometry {
+        mon_x: mon.position().x,
+        mon_y: mon.position().y,
+        mon_w: mon.size().width,
+        mon_h: mon.size().height,
+        scale: mon.scale_factor(),
+        win_x: pos.x,
+        win_y: pos.y,
+    })
+}
+
+#[tauri::command]
+fn get_window_geometry(window: WebviewWindow) -> Result<Geometry, String> {
+    geometry_of(&window)
+}
+
+/// 壁紙の画像（data URL）と、Windowsの「ページ表示」の設定
+#[derive(Serialize)]
+struct Wallpaper {
+    image: String,
+    path: String,
+    /// 10=ページ全体に合わせて拡大（塗りつぶし）, 6=調整, 2=拡大して表示, 0=中央, 22=スパン
+    style: u32,
+    tile: bool,
+    /// 背景色（RGB）。「調整」「中央」のときの余白の色
+    bg: [u8; 3],
+}
+
+#[cfg(windows)]
+fn read_wallpaper_settings() -> Result<(String, u32, bool, [u8; 3]), String> {
+    use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let desk = hkcu
+        .open_subkey("Control Panel\\Desktop")
+        .map_err(|e| e.to_string())?;
+    let path: String = desk.get_value("WallPaper").map_err(|e| e.to_string())?;
+    let style: u32 = desk
+        .get_value::<String, _>("WallpaperStyle")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(10);
+    let tile: bool = desk
+        .get_value::<String, _>("TileWallpaper")
+        .ok()
+        .map(|s| s.trim() == "1")
+        .unwrap_or(false);
+    let bg: [u8; 3] = hkcu
+        .open_subkey("Control Panel\\Colors")
+        .ok()
+        .and_then(|k| k.get_value::<String, _>("Background").ok())
+        .map(|s| {
+            let v: Vec<u8> = s.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+            if v.len() == 3 {
+                [v[0], v[1], v[2]]
+            } else {
+                [0, 0, 0]
+            }
+        })
+        .unwrap_or([0, 0, 0]);
+    Ok((path, style, tile, bg))
+}
+
+#[cfg(not(windows))]
+fn read_wallpaper_settings() -> Result<(String, u32, bool, [u8; 3]), String> {
+    Err("Windows専用の機能です".into())
+}
+
+fn sniff_mime(b: &[u8]) -> &'static str {
+    if b.starts_with(&[0xFF, 0xD8]) {
+        "image/jpeg"
+    } else if b.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        "image/png"
+    } else if b.starts_with(b"BM") {
+        "image/bmp"
+    } else if b.len() > 12 && &b[0..4] == b"RIFF" && &b[8..12] == b"WEBP" {
+        "image/webp"
+    } else {
+        "image/jpeg"
+    }
+}
+
+#[tauri::command]
+fn get_wallpaper() -> Result<Wallpaper, String> {
+    let (path, style, tile, bg) = read_wallpaper_settings()?;
+    if path.trim().is_empty() {
+        return Err("壁紙が設定されていません（単色の背景です）".into());
+    }
+    let bytes = std::fs::read(&path)
+        .map_err(|e| format!("壁紙を読めませんでした（{}）: {}", path, e))?;
+    let mime = sniff_mime(&bytes);
+    let image = format!(
+        "data:{};base64,{}",
+        mime,
+        base64::engine::general_purpose::STANDARD.encode(&bytes)
+    );
+    Ok(Wallpaper {
+        image,
+        path,
+        style,
+        tile,
+        bg,
+    })
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            set_effect,
+            fit_window,
+            get_window_geometry,
+            get_wallpaper
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
