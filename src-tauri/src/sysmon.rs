@@ -6,6 +6,9 @@
 //!   アダプターごとに「処理エンジン別の合計（全プロセス分）」を出し、その最大値を使用率とする。
 //!   アダプター名はDXGIから取る。
 //! - RAM: GlobalMemoryStatusEx。
+//! - 温度（追加カード）: CPUは性能カウンター「Thermal Zone Information」（ACPIの熱ゾーン。管理者権限なしで取れる値。
+//!   CPUパッケージの実温度とはずれることがある）。GPUは D3DKMT のアダプター情報（Task Managerと同じ。使用中のGPUだけ読む）
+//! - ネットワーク（追加カード）: GetIfTable2 の送受信バイト数の差。物理的なアダプター（Wi-Fi・有線）だけを合計する
 //!
 //! 使用率のカウンターは「前回の取得からの差」で計算するため、最初の1回は値が出ない。
 
@@ -22,6 +25,22 @@ pub struct GpuUsage {
     pub full_name: String,
     /// 0〜100。取れないときは None
     pub usage: Option<f64>,
+    /// 温度（℃）
+    pub temp_c: Option<f64>,
+    /// "ok" / "idle"（使われていないので読まない。外付けGPUを起こさないため）/ "unsupported"（ドライバーが返さない）
+    pub temp_state: String,
+}
+
+/// ネットワークの送受信（物理的なアダプターの合計）
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct NetUsage {
+    /// 受信・送信（バイト/秒）。最初の1回は None
+    pub rx_bps: Option<f64>,
+    pub tx_bps: Option<f64>,
+    /// いちばん通信量の多いアダプターの名前（"Wi-Fi" など）。つながっていないときは None
+    pub name: Option<String>,
+    /// つながっているアダプターの数
+    pub up: usize,
 }
 
 #[derive(Serialize, Clone)]
@@ -36,6 +55,9 @@ pub struct Usage {
     pub ram_total_gb: f64,
     /// 見つかったGPU（使用率が取れないものも含む）
     pub gpus: Vec<GpuUsage>,
+    /// CPU付近の温度（ACPIの熱ゾーンの最高値、℃）
+    pub cpu_temp_c: Option<f64>,
+    pub net: Option<NetUsage>,
     /// 取得で起きた問題（画面の確認用。正常なら空）
     pub notes: Vec<String>,
 }
@@ -122,6 +144,40 @@ pub fn aggregate_engines(items: &[(String, String, f64)]) -> std::collections::H
     per_luid
 }
 
+/// 熱ゾーンの値（ケルビン、または 0.1ケルビン）を℃にし、ありえない値を除いて最高値を返す
+pub fn thermal_max_c(values: &[f64], tenths: bool) -> Option<f64> {
+    values
+        .iter()
+        .map(|v| if tenths { v / 10.0 } else { *v } - 273.15)
+        .filter(|c| c.is_finite() && (5.0..=125.0).contains(c))
+        .fold(None, |m: Option<f64>, c| Some(m.map_or(c, |m| m.max(c))))
+}
+
+/// 1つのアダプターの (名前, 受信バイト累計, 送信バイト累計)
+pub type IfCounter = (String, u64, u64);
+
+/// 前回と今回の累計から、合計の速さ（バイト/秒）と、いちばん忙しいアダプターの名前を出す
+pub fn net_rates(prev: &[IfCounter], cur: &[IfCounter], secs: f64) -> (Option<f64>, Option<f64>, Option<String>) {
+    let mut busiest: Option<(String, u64)> = cur.first().map(|c| (c.0.clone(), 0));
+    if secs <= 0.05 || prev.is_empty() {
+        return (None, None, busiest.map(|b| b.0));
+    }
+    let (mut rx, mut tx) = (0u64, 0u64);
+    for c in cur {
+        if let Some(p) = prev.iter().find(|p| p.0 == c.0) {
+            // カウンターが戻った（アダプターの付け直しなど）ときは、その回は数えない
+            let dr = c.1.saturating_sub(p.1);
+            let dt = c.2.saturating_sub(p.2);
+            rx += dr;
+            tx += dt;
+            if busiest.as_ref().map(|b| dr + dt > b.1).unwrap_or(true) {
+                busiest = Some((c.0.clone(), dr + dt));
+            }
+        }
+    }
+    (Some(rx as f64 / secs), Some(tx as f64 / secs), busiest.map(|b| b.0))
+}
+
 // ---------------------------------------------------------------
 // Windows の実装
 // ---------------------------------------------------------------
@@ -131,7 +187,14 @@ mod imp {
     use super::*;
     use std::collections::HashMap;
     use windows::core::{w, PCWSTR};
+    use windows::Wdk::Graphics::Direct3D::{
+        D3DKMTCloseAdapter, D3DKMTOpenAdapterFromLuid, D3DKMTQueryAdapterInfo, D3DKMT_ADAPTER_PERFDATA, D3DKMT_CLOSEADAPTER,
+        D3DKMT_OPENADAPTERFROMLUID, D3DKMT_QUERYADAPTERINFO, KMTQAITYPE_ADAPTERPERFDATA,
+    };
+    use windows::Win32::Foundation::LUID;
     use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE};
+    use windows::Win32::NetworkManagement::IpHelper::{FreeMibTable, GetIfTable2, MIB_IF_TABLE2};
+    use windows::Win32::NetworkManagement::Ndis::IfOperStatusUp;
     use windows::Win32::System::Performance::*;
     use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
@@ -141,12 +204,17 @@ mod imp {
     struct Adapter {
         id: String,
         full_name: String,
+        luid: LUID,
     }
 
     pub struct SysMon {
         query: PDH_HQUERY,
         cpu: Option<PDH_HCOUNTER>,
         gpu: Option<PDH_HCOUNTER>,
+        /// 熱ゾーン（値が 0.1ケルビン単位なら true）
+        thermal: Option<(PDH_HCOUNTER, bool)>,
+        net_prev: Vec<IfCounter>,
+        net_at: Option<std::time::Instant>,
         adapters: Vec<Adapter>,
         adapters_err: Option<String>,
         init_notes: Vec<String>,
@@ -163,7 +231,7 @@ mod imp {
             if st != ERROR_SUCCESS {
                 notes.push(format!("性能カウンターを開けませんでした（0x{:08X}）", st));
                 let (adapters, adapters_err) = enum_adapters();
-                return SysMon { query, cpu: None, gpu: None, adapters, adapters_err, init_notes: notes };
+                return SysMon { query, cpu: None, gpu: None, thermal: None, net_prev: Vec::new(), net_at: None, adapters, adapters_err, init_notes: notes };
             }
 
             let add = |path: PCWSTR| -> Option<PDH_HCOUNTER> {
@@ -185,12 +253,15 @@ mod imp {
             if gpu.is_none() {
                 notes.push("GPUのカウンター（GPU Engine）がありません".into());
             }
+            let thermal = add(w!("\\Thermal Zone Information(*)\\High Precision Temperature"))
+                .map(|c| (c, true))
+                .or_else(|| add(w!("\\Thermal Zone Information(*)\\Temperature")).map(|c| (c, false)));
             // 1回目の取得（差を取るための基準）
             unsafe {
                 let _ = PdhCollectQueryData(query);
             }
             let (adapters, adapters_err) = enum_adapters();
-            SysMon { query, cpu, gpu, adapters, adapters_err, init_notes: notes }
+            SysMon { query, cpu, gpu, thermal, net_prev: Vec::new(), net_at: None, adapters, adapters_err, init_notes: notes }
         }
 
         /// GPUの一覧を取り直す（設定画面を開いたときなど）
@@ -246,7 +317,24 @@ mod imp {
             for a in &self.adapters {
                 // カウンターにまだ出ていないアダプター（外付けGPUが休止中など）は 0%
                 let usage = per_luid.as_ref().map(|m| m.get(&a.id).copied().unwrap_or(0.0));
-                gpus.push(GpuUsage { id: a.id.clone(), name: short_gpu_name(&a.full_name), full_name: a.full_name.clone(), usage });
+                // 温度は、使われている（カウンターに出ている）GPUだけ読む。休止中の外付けGPUを起こさないため
+                let active = per_luid.as_ref().map(|m| m.contains_key(&a.id)).unwrap_or(false);
+                let (temp_c, temp_state) = if !active {
+                    (None, "idle")
+                } else {
+                    match gpu_temp(a.luid) {
+                        Some(t) => (Some(t), "ok"),
+                        None => (None, "unsupported"),
+                    }
+                };
+                gpus.push(GpuUsage {
+                    id: a.id.clone(),
+                    name: short_gpu_name(&a.full_name),
+                    full_name: a.full_name.clone(),
+                    usage,
+                    temp_c,
+                    temp_state: temp_state.into(),
+                });
             }
             // DXGIの名前と1つも対応しないときは、名前なしで出す（取り違えより「出ない」を避ける）
             if let Some(m) = &per_luid {
@@ -255,7 +343,7 @@ mod imp {
                     keys.sort();
                     for (i, k) in keys.into_iter().enumerate() {
                         let n = format!("GPU {}", i);
-                        gpus.push(GpuUsage { id: k.clone(), name: n.clone(), full_name: n, usage: m.get(k).copied() });
+                        gpus.push(GpuUsage { id: k.clone(), name: n.clone(), full_name: n, usage: m.get(k).copied(), temp_c: None, temp_state: "unsupported".into() });
                     }
                     if !self.adapters.is_empty() {
                         notes.push("GPUの名前とカウンターを対応づけられませんでした".into());
@@ -278,7 +366,80 @@ mod imp {
                 }
             };
 
-            Usage { cpu, ram, ram_used_gb: used, ram_total_gb: total, gpus, notes }
+            // CPU付近の温度（熱ゾーン）
+            let cpu_temp_c = match (collected, self.thermal) {
+                (true, Some((c, tenths))) => {
+                    read_array(c).and_then(|items| thermal_max_c(&items.iter().map(|(_, v)| *v).collect::<Vec<_>>(), tenths))
+                }
+                _ => None,
+            };
+
+            // ネットワーク
+            let net = read_ifs().map(|cur| {
+                let now = std::time::Instant::now();
+                let secs = self.net_at.map(|t| now.duration_since(t).as_secs_f64()).unwrap_or(0.0);
+                let (rx, tx, name) = net_rates(&self.net_prev, &cur, secs);
+                let up = cur.len();
+                self.net_prev = cur;
+                self.net_at = Some(now);
+                NetUsage { rx_bps: rx, tx_bps: tx, name, up }
+            });
+            if net.is_none() {
+                notes.push("ネットワークの情報を取得できませんでした".into());
+            }
+
+            Usage { cpu, ram, ram_used_gb: used, ram_total_gb: total, gpus, cpu_temp_c, net, notes }
+        }
+    }
+
+    /// GPUの温度（℃）。ドライバーが返さないとき（0）は None
+    fn gpu_temp(luid: LUID) -> Option<f64> {
+        unsafe {
+            let mut open = D3DKMT_OPENADAPTERFROMLUID { AdapterLuid: luid, hAdapter: 0 };
+            if D3DKMTOpenAdapterFromLuid(&mut open).0 < 0 {
+                return None;
+            }
+            let mut pd = D3DKMT_ADAPTER_PERFDATA::default();
+            let mut q = D3DKMT_QUERYADAPTERINFO {
+                hAdapter: open.hAdapter,
+                Type: KMTQAITYPE_ADAPTERPERFDATA,
+                pPrivateDriverData: &mut pd as *mut _ as *mut core::ffi::c_void,
+                PrivateDriverDataSize: std::mem::size_of::<D3DKMT_ADAPTER_PERFDATA>() as u32,
+            };
+            let st = D3DKMTQueryAdapterInfo(&mut q);
+            let _ = D3DKMTCloseAdapter(&D3DKMT_CLOSEADAPTER { hAdapter: open.hAdapter });
+            // 単位は 0.1℃
+            if st.0 < 0 || pd.Temperature == 0 || pd.Temperature > 1500 {
+                None
+            } else {
+                Some(pd.Temperature as f64 / 10.0)
+            }
+        }
+    }
+
+    /// つながっている物理的なアダプター（Wi-Fi・有線）の送受信の累計。フィルターや仮想のアダプターは除く
+    fn read_ifs() -> Option<Vec<IfCounter>> {
+        unsafe {
+            let mut t: *mut MIB_IF_TABLE2 = std::ptr::null_mut();
+            if GetIfTable2(&mut t).0 != 0 || t.is_null() {
+                return None;
+            }
+            let n = (*t).NumEntries as usize;
+            let rows = std::slice::from_raw_parts((*t).Table.as_ptr(), n);
+            let mut out = Vec::new();
+            for r in rows {
+                let flags = r.InterfaceAndOperStatusFlags._bitfield;
+                let hardware = flags & 0x01 != 0;
+                let filter = flags & 0x02 != 0;
+                if !hardware || filter || r.OperStatus != IfOperStatusUp {
+                    continue;
+                }
+                let len = r.Alias.iter().position(|&c| c == 0).unwrap_or(r.Alias.len());
+                let name = String::from_utf16_lossy(&r.Alias[..len]);
+                out.push((name, r.InOctets, r.OutOctets));
+            }
+            FreeMibTable(t as *const core::ffi::c_void);
+            Some(out)
         }
     }
 
@@ -351,7 +512,7 @@ mod imp {
             let id = luid_key(d.AdapterLuid.HighPart as u32, d.AdapterLuid.LowPart);
             // 同じアダプターが出力ごとに重複して出ることがあるので除く
             if !out.iter().any(|x| x.id == id) {
-                out.push(Adapter { id, full_name });
+                out.push(Adapter { id, full_name, luid: d.AdapterLuid });
             }
             if i > 16 {
                 break;
@@ -375,7 +536,16 @@ mod imp {
         }
         pub fn refresh_adapters(&mut self) {}
         pub fn sample(&mut self) -> Usage {
-            Usage { cpu: None, ram: None, ram_used_gb: 0.0, ram_total_gb: 0.0, gpus: Vec::new(), notes: vec!["Windows専用の機能です".into()] }
+            Usage {
+                cpu: None,
+                ram: None,
+                ram_used_gb: 0.0,
+                ram_total_gb: 0.0,
+                gpus: Vec::new(),
+                cpu_temp_c: None,
+                net: None,
+                notes: vec!["Windows専用の機能です".into()],
+            }
         }
     }
 }
@@ -400,6 +570,30 @@ mod tests {
         assert_eq!(l, "00000000_0000D1A5");
         assert_eq!(e, "0_3");
         assert!(parse_engine_instance("garbage").is_none());
+    }
+
+    #[test]
+    fn thermal() {
+        // 0.1ケルビン単位: 3231 → 50.0℃、ありえない値（0K）は除く
+        let t = thermal_max_c(&[3231.5, 3031.5, 0.0], true).unwrap();
+        assert!((t - 50.0).abs() < 0.01);
+        assert!((thermal_max_c(&[300.15], false).unwrap() - 27.0).abs() < 0.01);
+        assert_eq!(thermal_max_c(&[], true), None);
+    }
+
+    #[test]
+    fn network_rates() {
+        let prev = vec![("Wi-Fi".to_string(), 1000, 500), ("イーサネット".to_string(), 0, 0)];
+        let cur = vec![("Wi-Fi".to_string(), 3000, 900), ("イーサネット".to_string(), 100, 0)];
+        let (rx, tx, name) = net_rates(&prev, &cur, 2.0);
+        assert_eq!(rx, Some(1050.0));
+        assert_eq!(tx, Some(200.0));
+        assert_eq!(name.as_deref(), Some("Wi-Fi"));
+        // 最初の1回
+        assert_eq!(net_rates(&[], &cur, 1.0).0, None);
+        // カウンターが戻ったら、その回は0
+        let back = vec![("Wi-Fi".to_string(), 10, 10)];
+        assert_eq!(net_rates(&prev, &back, 1.0).0, Some(0.0));
     }
 
     #[test]

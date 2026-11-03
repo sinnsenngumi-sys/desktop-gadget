@@ -210,7 +210,8 @@
   };
   function legend(){
     var p=PAL[S.map]||PAL.dark;
-    $('#rattr').textContent='出典：気象庁ホームページ（雨雲の動き。色を変えて表示）、地理院タイル'+(S.map==='light'?'':'（明暗を反転して表示）');
+    /* 1行に収まる長さにする。加工した旨は規約に従って明記する */
+    $('#rattr').textContent=S.map==='light'?'出典：気象庁ホームページ（色を加工）、地理院タイル':'出典：気象庁ホームページ、地理院タイル（いずれも色を加工）';
     $('#rlegend').style.background='linear-gradient(90deg,'+p.map(function(c){return 'rgb('+c[0]+','+c[1]+','+c[2]+')'}).join(',')+')';
   }
   function zoom(){return +$('#radarZoom').value||8}
