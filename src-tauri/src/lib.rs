@@ -1,5 +1,6 @@
 mod sysmon;
 mod sysstate;
+mod weather;
 
 use base64::Engine as _;
 use serde::Serialize;
@@ -197,11 +198,84 @@ async fn get_system_state(game_exes: Vec<String>) -> Result<sysstate::SystemStat
     Ok(sysstate::read(&game_exes))
 }
 
+// ---------------------------------------------------------------
+// フェーズ4：天気・警報・雨雲レーダー（§4）。通信は weather.rs にまとめ、許可リストの取得先だけに接続する
+// ---------------------------------------------------------------
+
+type NetState<'a> = tauri::State<'a, weather::Net>;
+
+#[tauri::command]
+async fn wx_geocode(net: NetState<'_>, query: String) -> Result<Vec<weather::Place>, String> {
+    weather::geocode(&net, &query).await
+}
+
+#[tauri::command]
+async fn wx_current(net: NetState<'_>, lat: f64, lon: f64) -> Result<weather::Weather, String> {
+    weather::weather(&net, lat, lon).await
+}
+
+/// 地点から、警報の地域（市区町村）を推定する
+#[tauri::command]
+async fn wx_find_area(net: NetState<'_>, lat: f64, lon: f64) -> Result<weather::AreaInfo, String> {
+    weather::find_area(&net, lat, lon).await
+}
+
+/// 保存してある市区町村コードの名前と、選び直し用の一覧
+#[tauri::command]
+async fn wx_area_info(net: NetState<'_>, code: String) -> Result<weather::AreaInfo, String> {
+    weather::area_info(&net, &code).await
+}
+
+#[tauri::command]
+async fn wx_warnings(net: NetState<'_>, code: String) -> Result<weather::Warnings, String> {
+    weather::warnings(&net, &code).await
+}
+
+#[tauri::command]
+async fn wx_radar_times(net: NetState<'_>) -> Result<weather::RadarTimes, String> {
+    weather::radar_times(&net).await
+}
+
+/// 雨雲のタイル（PNG）。画面側には ArrayBuffer で渡す
+#[tauri::command]
+async fn wx_radar_tile(net: NetState<'_>, basetime: String, validtime: String, z: u8, x: u32, y: u32) -> Result<tauri::ipc::Response, String> {
+    let b = weather::radar_tile(&net, &basetime, &validtime, z, x, y).await?;
+    Ok(tauri::ipc::Response::new(b.as_ref().clone()))
+}
+
+/// 背景の地図タイル（地理院タイル）
+#[tauri::command]
+async fn wx_base_tile(net: NetState<'_>, z: u8, x: u32, y: u32) -> Result<tauri::ipc::Response, String> {
+    let b = weather::base_tile(&net, z, x, y).await?;
+    Ok(tauri::ipc::Response::new(b.as_ref().clone()))
+}
+
+#[derive(Serialize)]
+struct SourcesInfo {
+    path: String,
+    note: Option<String>,
+}
+
+/// 取得先の設定ファイルの場所（設定画面に出す）
+#[tauri::command]
+fn wx_sources(net: NetState<'_>) -> SourcesInfo {
+    SourcesInfo { path: net.src_path.clone(), note: net.src_note.clone() }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(UsageState(Mutex::new(None)))
         .setup(|app| {
+            // 取得先の設定ファイル（%APPDATA%\local.desktopgadget\sources.json）
+            let path = app
+                .path()
+                .app_config_dir()
+                .map(|d| d.join("sources.json"))
+                .unwrap_or_else(|_| std::path::PathBuf::from("sources.json"));
+            let (src, note) = weather::load_sources(&path);
+            app.manage(weather::Net::new(src, path.display().to_string(), note));
+
             // 使用率は「前回からの差」なので、起動時に1回目を取っておく（最初の表示までの待ちを短くする）
             let handle = app.handle().clone();
             std::thread::spawn(move || {
@@ -217,7 +291,16 @@ pub fn run() {
             get_wallpaper,
             get_usage,
             list_gpus,
-            get_system_state
+            get_system_state,
+            wx_geocode,
+            wx_current,
+            wx_find_area,
+            wx_area_info,
+            wx_warnings,
+            wx_radar_times,
+            wx_radar_tile,
+            wx_base_tile,
+            wx_sources
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

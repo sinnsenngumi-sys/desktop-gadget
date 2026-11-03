@@ -49,7 +49,7 @@ body{
 #sh{transition:none}
 #analogWrap .info{min-width:0}
 #analogWrap .date{font-size:18px;margin:4px 0 0;white-space:nowrap}
-#analogWrap .dt{font-size:32px;font-weight:300;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--c-time,var(--fg))}
+#analogWrap .dt{font-size:var(--adt,46px);line-height:1.1;font-weight:300;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--c-time,var(--fg))}
 /* weather */
 .wx{display:flex;align-items:center;gap:18px}
 .wx svg{width:64px;height:64px;flex:none}
@@ -59,9 +59,21 @@ body{
 .rc{display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:0}
 .warns{display:flex;flex-direction:column;align-items:flex-end;gap:5px}
 .w{font-size:13px;font-weight:700;padding:3px 10px;border-radius:99px;white-space:nowrap}
+/* 令和8年体系の色: 特別警報（レベル5）黒、危険警報（レベル4）紫、警報（レベル3）赤、注意報（レベル2）黄 */
 .w.adv{background:#facc15;color:#3a2e00}
 .w.warn{background:#ef4444;color:#fff}
-.w.sp{background:#6d28d9;color:#fff;box-shadow:0 0 0 1px #fff}
+.w.danger{background:#7e22ce;color:#fff}
+.w.sp{background:#0b0b0b;color:#fff;box-shadow:0 0 0 1.5px #fff}
+.place{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px}
+.upd.stale{color:#ffd38a}
+.rmsg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;padding:6px 12px;border-radius:10px;background:rgba(0,0,0,.72);color:#fff;white-space:nowrap}
+.rmsg:empty{display:none}
+.chip.stale{background:rgba(120,70,0,.85)}
+.panel .res{display:flex;flex-direction:column;gap:4px;margin:4px 0}
+.panel .res button{text-align:left}
+.panel .cur{font-size:13px;color:#dfe7f7;margin:4px 0;line-height:1.5}
+.panel .two{display:flex;gap:6px}
+.panel .two input{flex:1;min-width:0}
 .w.more{background:rgba(0,0,0,.45);color:#fff;font-weight:400}
 .w.none{background:none;color:var(--muted);font-weight:400;padding:0}
 .place{font-size:17px;color:var(--c-sub,var(--muted))}
@@ -181,15 +193,11 @@ html,body{overflow-x:hidden;overflow-y:auto}
       <span class="badge">停止中</span>
       <div class="row">
         <div class="wx">
-          <svg viewBox="0 0 64 64" aria-label="晴れ時々くもり">
-            <circle cx="24" cy="24" r="10" fill="#FFD36B"/>
-            <g stroke="#FFD36B" stroke-width="3" stroke-linecap="round"><path d="M24 6v5M24 37v5M6 24h5M37 24h5M11 11l3.5 3.5M33.5 33.5L37 37M37 11l-3.5 3.5M14.5 33.5L11 37"/></g>
-            <path d="M24 50a9 9 0 0 1 1-18 12 12 0 0 1 23 3 8 8 0 0 1-1 15z" fill="#fff" opacity=".92"/>
-          </svg>
-          <div><div class="place">東京・晴れ時々くもり</div><div class="temp" id="temp">22°</div></div>
+          <svg viewBox="0 0 64 64" id="wxIcon" role="img" aria-label="天気"></svg>
+          <div style="min-width:0"><div class="place" id="wxPlace">場所が未設定です</div><div class="temp" id="temp">--°</div></div>
         </div>
         <div class="rc">
-          <div class="hum"><span>湿度</span><b id="hum">58%</b></div>
+          <div class="hum"><span>湿度</span><b id="hum">--%</b></div>
           <div class="warns" id="warns"></div>
         </div>
       </div>
@@ -198,10 +206,11 @@ html,body{overflow-x:hidden;overflow-y:auto}
         <div class="mapWrap">
           <canvas id="radar"></canvas>
           <span class="chip" id="rlabel">--:--</span>
+          <span class="rmsg" id="rmsg"></span>
         </div>
         <div class="prog"><b id="rprog"></b></div>
-        <div class="rinfo"><span>雨雲レーダー（○は現在地）</span><span class="legend"><span>弱</span><i class="bar"></i><span>強</span></span></div>
-        <div class="attr">ダミー表示。実装では 出典：気象庁ホームページ ／ 地理院タイル</div>
+        <div class="rinfo"><span id="rcap">雨雲レーダー（○は現在地）</span><span class="legend"><span>弱</span><i class="bar" id="rlegend"></i><span>強</span></span></div>
+        <div class="attr" id="rattr">出典：気象庁ホームページ（雨雲の動き）、地理院タイル。いずれも色を変えて表示</div>
       </div>
     </article>
 
@@ -247,24 +256,50 @@ html,body{overflow-x:hidden;overflow-y:auto}
     </label>
     <label>秒を表示 <input type="checkbox" id="sec" checked></label>
     <label>12時間表示 <input type="checkbox" id="h12"></label>
+    <label>アナログ時の時刻の大きさ
+      <select id="analogSize"><option value="32">小</option><option value="40">中</option><option value="46" selected>大</option><option value="50">特大</option></select>
+    </label>
     <label>秒針の動き
       <select id="sweep"><option value="0">1秒刻み</option><option value="1">滑らか</option></select>
     </label>
 
     <h3>天気</h3>
+    <div class="cur" id="locCur">場所：未設定</div>
+    <div class="sub">地名で探す</div>
+    <div class="two"><input type="text" id="locQuery" placeholder="例: 千代田区、札幌、那覇" spellcheck="false" data-nosave><button class="btn" id="locSearch" type="button">検索</button></div>
+    <div class="res" id="locResults"></div>
+    <div class="sub">緯度・経度で指定</div>
+    <div class="two"><input type="text" id="latIn" placeholder="緯度 35.6812" data-nosave><input type="text" id="lonIn" placeholder="経度 139.7671" data-nosave><button class="btn" id="latlonSet" type="button">設定</button></div>
+    <input type="hidden" id="locName"><input type="hidden" id="locLat"><input type="hidden" id="locLon">
+    <label>警報の地域
+      <select id="areaSel"><option value="">（場所を決めると選べます）</option></select>
+    </label>
+    <label>温度の単位
+      <select id="tempUnit"><option value="c" selected>℃</option><option value="f">℉</option></select>
+    </label>
+    <label>天気の更新間隔
+      <select id="wxMin"><option value="5">5分</option><option value="10" selected>10分</option><option value="15">15分</option><option value="20">20分</option><option value="30">30分</option><option value="60">60分</option></select>
+    </label>
     <label>雨雲レーダーを表示 <input type="checkbox" id="radarOn"></label>
+    <label>レーダーの範囲
+      <select id="radarZoom"><option value="6">広域（約400km）</option><option value="8" selected>標準（約130km）</option><option value="10">詳細（約30km）</option></select>
+    </label>
     <label>地図の色
       <select id="mapSel"><option value="dark">ダーク</option><option value="light">ライト</option></select>
     </label>
     <label>警報・注意報を表示 <input type="checkbox" id="warnOn" checked></label>
-    <label>発表状況の試験
+    <label>警報の表示の試験
       <select id="warnSel">
-        <option value="none">なし</option>
-        <option value="adv" selected>注意報のみ</option>
-        <option value="warn">警報あり（3件）</option>
-        <option value="sp">特別警報あり</option>
+        <option value="real" selected>実際の発表（気象庁）</option>
+        <option value="none">試験：なし</option>
+        <option value="adv">試験：注意報のみ</option>
+        <option value="warn">試験：警報あり（3件）</option>
+        <option value="danger">試験：危険警報あり</option>
+        <option value="sp">試験：特別警報あり</option>
       </select>
     </label>
+    <div class="hint" id="wxNote"></div>
+    <div class="note" id="wxSrc" style="margin-top:6px;word-break:break-all"></div>
 
     <h3>文字の色（項目ごと）</h3>
     <div id="tcList"></div>
@@ -307,7 +342,7 @@ html,body{overflow-x:hidden;overflow-y:auto}
     </div>
     <div class="status" id="status"></div>
 
-    <div class="note">使用量と動作状態は、Windowsの実測です（ブラウザで開いたときはダミー）。天気・レーダー・警報はまだダミーです。「通常／バッテリー／ゲーム中」は試験用の固定で、保存されません。</div>
+    <div class="note">使用量・動作状態・天気・警報・レーダーは実際の値です（ブラウザで開いたときはダミー）。「通常／バッテリー／ゲーム中」は試験用の固定で、保存されません。</div>
   </aside>
 </main>
 </div>
@@ -317,7 +352,7 @@ html,body{overflow-x:hidden;overflow-y:auto}
   var $=function(s){return document.querySelector(s)};
   var pad=function(n){return String(n).padStart(2,'0')};
   var WD=['日','月','火','水','木','金','土'];
-  var S={mode:'digital',sec:true,h12:false,sweep:false,power:'ac',radar:false,map:'dark',warnOn:true,warnSet:'adv',
+  var S={mode:'digital',sec:true,h12:false,sweep:false,power:'ac',radar:false,map:'dark',warnOn:true,warnSet:'real',
          colors:{cpu:'#6FD0FF',gpu:'#C9A8FF',ram:'#9AE6B4'}};
   var DEF={cpu:'#6FD0FF',gpu:'#C9A8FF',ram:'#9AE6B4'};
   var root=document.documentElement.style;
@@ -385,39 +420,16 @@ html,body{overflow-x:hidden;overflow-y:auto}
   document.querySelectorAll('input[name=mode]').forEach(function(r){r.onchange=function(){setMode(r.value);renderClock()}});
   $('#sec').onchange=function(e){S.sec=e.target.checked;restartClock()};
   $('#h12').onchange=function(e){S.h12=e.target.checked;renderClock()};
+  $('#analogSize').onchange=function(e){root.setProperty('--adt',(+e.target.value||46)+'px')};
   $('#sweep').onchange=function(e){S.sweep=e.target.value==='1';renderClock()};
   function restartClock(){clearTimeout(clockTimer);if(S.power!=='game')tickClock()}
 
-  /* ---------- 天気 ---------- */
-  function refreshWeather(){
-    var d=new Date();
-    $('#upd').textContent='最終更新 '+pad(d.getHours())+':'+pad(d.getMinutes())+'（ダミー値）';
-  }
-
-  /* ---------- 警報・注意報（ダミー） ---------- */
-  var WSETS={
-    none:[],
-    adv:[{k:'adv',t:'強風注意報'},{k:'adv',t:'雷注意報'}],
-    warn:[{k:'adv',t:'洪水注意報'},{k:'warn',t:'大雨警報'},{k:'adv',t:'雷注意報'}],
-    sp:[{k:'warn',t:'洪水警報'},{k:'sp',t:'大雨特別警報'}]
-  };
-  var RANK={sp:0,warn:1,adv:2};
-  function renderWarns(){
-    var box=$('#warns');
-    box.style.display=S.warnOn?'':'none';
-    if(!S.warnOn)return;
-    var list=WSETS[S.warnSet].slice().sort(function(a,b){return RANK[a.k]-RANK[b.k]});
-    var h='';
-    if(!list.length){h='<span class="w none">警報・注意報なし</span>'}
-    else{
-      list.slice(0,2).forEach(function(x){h+='<span class="w '+x.k+'">'+x.t+'</span>'});
-      if(list.length>2)h+='<span class="w more">ほか'+(list.length-2)+'件</span>';
-    }
-    box.innerHTML=h;
-  }
+  /* ---------- 天気・警報・レーダー（§4）：本体は後ろのスクリプト GadgetWx。ここは呼び出し口だけ ---------- */
+  function wx(fn){var a=[].slice.call(arguments,1);if(window.GadgetWx&&window.GadgetWx[fn])window.GadgetWx[fn].apply(null,a)}
+  function refreshWeather(){wx('refreshAll')}
+  function renderWarns(){wx('renderWarns')}
   $('#warnOn').onchange=function(e){S.warnOn=e.target.checked;renderWarns()};
   $('#warnSel').onchange=function(e){S.warnSet=e.target.value;renderWarns()};
-
   /* ---------- 使用量（§5）：アプリではWindowsの実測、ブラウザではダミー ---------- */
   var T=window.__TAURI__;
   var U=null,usageBusy=false,gpuPick=null;
@@ -519,96 +531,17 @@ html,body{overflow-x:hidden;overflow-y:auto}
     usageTimer=setInterval(stepUsage,sec*mult*1000);
   }
 
-  /* ---------- 雨雲レーダー（ダミー描画：地図の上に、粒のはっきりした雨雲） ---------- */
-  var rc=$('#radar'),rx=rc.getContext('2d'),rf=0,radarTimer=null,W=0,H=0;
-  var PAL={
-    dark:{sea:'#1b1b1b',land:'#3a3a3a',coast:'#8a8a8a',border:'#6b6b6b',
-          rain:['#c9d1ea','#8db3e3','#4f86e0','#facc15','#fb923c','#ef4444']},
-    light:{sea:'#cfe3f2',land:'#f1f1ec',coast:'#a9b3a4',border:'#c5c5bc',
-          rain:['#8fa8e8','#5b8def','#2f6bdb','#eab308','#f97316','#dc2626']}
-  };
-  var cells=[
-    {x:-.02,y:.30,r:.20,i:.95,vx:.011,vy:.0015},
-    {x:.05,y:.76,r:.15,i:.75,vx:.009,vy:-.001},
-    {x:-.30,y:.55,r:.24,i:.7,vx:.010,vy:0},
-    {x:-.12,y:.14,r:.12,i:.9,vx:.012,vy:.002}
-  ];
-  function hash(a,b,c){var s=Math.sin(a*127.1+b*311.7+c*74.7)*43758.5453;return s-Math.floor(s)}
-  function vnoise(x,y){
-    var xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi;
-    var u=xf*xf*(3-2*xf),w=yf*yf*(3-2*yf);
-    var a=hash(xi,yi,5),b=hash(xi+1,yi,5),c=hash(xi,yi+1,5),d=hash(xi+1,yi+1,5);
-    return a+(b-a)*u+(c-a)*w+(a-b-c+d)*u*w;
-  }
-  function sizeRadar(){
-    var dpr=window.devicePixelRatio||1;
-    W=rc.clientWidth;H=rc.clientHeight;
-    if(!W)return;
-    rc.width=W*dpr;rc.height=H*dpr;rx.setTransform(dpr,0,0,dpr,0,0);
-  }
-  function coastX(t){return W*(.76-.14*Math.sin(t*3.1)+(hash(Math.round(t*40),0,1)-.5)*.025)}
-  function drawBase(P){
-    rx.fillStyle=P.sea;rx.fillRect(0,0,W,H);
-    var N=40,k,t;
-    rx.fillStyle=P.land;rx.beginPath();rx.moveTo(0,0);
-    for(k=0;k<=N;k++){t=k/N;rx.lineTo(coastX(t),H*t)}
-    rx.lineTo(0,H);rx.closePath();rx.fill();
-    rx.strokeStyle=P.border;rx.lineWidth=1.3;
-    [[[0,.32],[.2,.27],[.38,.36],[.5,.3],[.72,.2]],[[.38,.36],[.33,.6],[.4,.8],[.35,1]],[[.08,.72],[.3,.66],[.33,.6]]].forEach(function(p){
-      rx.beginPath();p.forEach(function(q,j){j?rx.lineTo(q[0]*W,q[1]*H):rx.moveTo(q[0]*W,q[1]*H)});rx.stroke();
-    });
-    rx.strokeStyle=P.coast;rx.lineWidth=1.6;rx.beginPath();
-    for(k=0;k<=N;k++){t=k/N;k?rx.lineTo(coastX(t),H*t):rx.moveTo(coastX(t),0)}
-    rx.stroke();
-  }
-  function drawRain(P,step){
-    var gs=Math.max(4,Math.round(6*W/388)),gx,gy,ci,c,v,best,lv,x,y,d2,R,cx,cy,dxc;
-    for(gx=0;gx<W/gs;gx++){
-      for(gy=0;gy<H/gs;gy++){
-        x=gx*gs+gs/2;y=gy*gs+gs/2;best=0;
-        for(ci=0;ci<cells.length;ci++){
-          c=cells[ci];R=c.r*W;
-          cx=(c.x+c.vx*step*3.2)*W;cy=(c.y+c.vy*step*3.2)*H;
-          dxc=Math.round((cx-c.x*W)/gs);
-          d2=((x-cx)*(x-cx)+(y-cy)*(y-cy))/(R*R);
-          if(d2>2.2)continue;
-          v=c.i*Math.exp(-d2*1.1)*(.42+.85*vnoise((gx-dxc)/3.2,gy/3.2+ci*9));
-          if(v>best)best=v;
-        }
-        lv=best<.34?-1:best<.46?0:best<.58?1:best<.7?2:best<.82?3:best<.92?4:5;
-        if(lv<0)continue;
-        rx.fillStyle=P.rain[lv];rx.fillRect(gx*gs,gy*gs,gs,gs);
-      }
-    }
-  }
-  function drawRadar(){
-    if(!W)sizeRadar();
-    if(!W)return;
-    var P=PAL[S.map];
-    rx.clearRect(0,0,W,H);
-    drawBase(P);
-    drawRain(P,rf+12);
-    var mx=W*.46,my=H*.56;
-    rx.lineWidth=6;rx.strokeStyle='rgba(0,0,0,.65)';rx.beginPath();rx.arc(mx,my,8,0,6.2832);rx.stroke();
-    rx.lineWidth=3;rx.strokeStyle='#ffffff';rx.beginPath();rx.arc(mx,my,8,0,6.2832);rx.stroke();
-    var base=new Date();base.setMinutes(Math.floor(base.getMinutes()/5)*5,0,0);
-    var t=new Date(base.getTime()+rf*300000);
-    $('#rlabel').textContent=pad(t.getHours())+':'+pad(t.getMinutes())+(rf<=0?'　実況':'　予測');
-    $('#rprog').style.width=((rf+12)/18*100)+'%';
-  }
-  function startRadar(){
-    clearInterval(radarTimer);
-    if(S.power==='game'||!S.radar)return;
-    radarTimer=setInterval(function(){rf=rf>=6?-12:rf+1;drawRadar()},S.power==='battery'?1400:700);
-  }
+  /* ---------- 雨雲レーダー：本体は GadgetWx ---------- */
+  function sizeRadar(){wx('resize')}
+  function drawRadar(){wx('draw')}
+  function startRadar(){wx('schedule')}
   $('#radarOn').onchange=function(e){
     S.radar=e.target.checked;
     $('#radarBox').style.display=S.radar?'':'none';
-    if(S.radar){sizeRadar();drawRadar()}
-    startRadar();
+    wx('radarToggled');
   };
-  $('#mapSel').onchange=function(e){S.map=e.target.value;drawRadar()};
-  window.addEventListener('resize',function(){sizeRadar();drawRadar()});
+  $('#mapSel').onchange=function(e){S.map=e.target.value;wx('mapChanged')};
+  window.addEventListener('resize',function(){sizeRadar()});
 
   /* ---------- サイズ（全体・カードごと・レーダーの高さ）と表示 ---------- */
   var Z={all:100,clock:100,wx:100,usage:100,rh:230};
@@ -665,7 +598,7 @@ html,body{overflow-x:hidden;overflow-y:auto}
   var KEY='desktopGadget.v1';
   function collect(){
     var o={v:{},r:{},tc:Cc};
-    document.querySelectorAll('.panel input[id],.panel select[id]').forEach(function(e){
+    document.querySelectorAll('.panel input[id]:not([data-nosave]),.panel select[id]').forEach(function(e){
       o.v[e.id]=e.type==='checkbox'?e.checked:e.value;
     });
     ['fg','mode'].forEach(function(n){
@@ -699,6 +632,7 @@ html,body{overflow-x:hidden;overflow-y:auto}
   document.querySelector('.panel').addEventListener('input',save);
   document.querySelector('.panel').addEventListener('change',save);
   window.GadgetSettings={load:load,save:save};
+  window.GadgetCore={S:S,opt:function(){return opt()},stopped:function(){return S.power==='game'}};
 
   /* ---------- 動作状態（§7）：電源・ゲーム中・ロックを実測し、更新間隔を変える ---------- */
   var P={override:'auto',det:null,lastFg:null,err:''};
@@ -1013,5 +947,7 @@ html,body{overflow-x:hidden;overflow-y:auto}
 })();
 
 </script>
+<!-- フェーズ4：天気・警報・雨雲レーダー -->
+<script src="weather.js"></script>
 </body>
 </html>
