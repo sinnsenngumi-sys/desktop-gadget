@@ -1,6 +1,10 @@
+mod sysmon;
+mod sysstate;
+
 use base64::Engine as _;
 use serde::Serialize;
-use tauri::WebviewWindow;
+use std::sync::Mutex;
+use tauri::{Manager, WebviewWindow};
 use window_vibrancy::{apply_acrylic, apply_blur, apply_mica, clear_acrylic, clear_blur, clear_mica};
 
 /// OSのぼかし効果の比較用。画面のボタンから呼ぶ。
@@ -159,14 +163,61 @@ fn get_wallpaper() -> Result<Wallpaper, String> {
     })
 }
 
+// ---------------------------------------------------------------
+// フェーズ3：使用量（§5）と動作状態（§7）
+// ---------------------------------------------------------------
+
+/// 使用量の取得は、前回からの差で計算するため、1つの取得器を使い回す
+struct UsageState(Mutex<Option<sysmon::SysMon>>);
+
+fn with_mon<T>(state: &UsageState, f: impl FnOnce(&mut sysmon::SysMon) -> T) -> Result<T, String> {
+    let mut g = state.0.lock().map_err(|_| "使用量の取得器が壊れました".to_string())?;
+    let mon = g.get_or_insert_with(sysmon::SysMon::new);
+    Ok(f(mon))
+}
+
+/// CPU・GPU・RAMの使用量。画面側が更新間隔（1〜5秒、バッテリー時は倍）で呼ぶ
+#[tauri::command]
+async fn get_usage(state: tauri::State<'_, UsageState>) -> Result<sysmon::Usage, String> {
+    with_mon(&state, |m| m.sample())
+}
+
+/// GPUの一覧を取り直す（設定の「表示するGPU」用）
+#[tauri::command]
+async fn list_gpus(state: tauri::State<'_, UsageState>) -> Result<Vec<sysmon::GpuUsage>, String> {
+    with_mon(&state, |m| {
+        m.refresh_adapters();
+        m.sample().gpus
+    })
+}
+
+/// 電源・ゲーム中・ロックの状態。game_exes は「ゲーム扱いにするアプリ」の実行ファイル名
+#[tauri::command]
+async fn get_system_state(game_exes: Vec<String>) -> Result<sysstate::SystemState, String> {
+    Ok(sysstate::read(&game_exes))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(UsageState(Mutex::new(None)))
+        .setup(|app| {
+            // 使用率は「前回からの差」なので、起動時に1回目を取っておく（最初の表示までの待ちを短くする）
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let st = handle.state::<UsageState>();
+                let _ = with_mon(&st, |_| ());
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             set_effect,
             fit_window,
             get_window_geometry,
-            get_wallpaper
+            get_wallpaper,
+            get_usage,
+            list_gpus,
+            get_system_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

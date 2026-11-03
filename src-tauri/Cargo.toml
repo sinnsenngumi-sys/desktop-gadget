@@ -20,3 +20,15 @@ base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+# フェーズ3：使用量（PDH・DXGI・メモリ）と動作状態（電源・全画面・ロック）。Tauriが使う版にそろえる
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_System_Performance",
+  "Win32_System_SystemInformation",
+  "Win32_System_Power",
+  "Win32_System_Threading",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Graphics_Gdi",
+  "Win32_Graphics_Dxgi",
+] }

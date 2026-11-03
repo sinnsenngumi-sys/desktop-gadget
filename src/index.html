@@ -86,6 +86,13 @@ body{
 .u .l b{font-weight:600}
 .u .t{flex:1;height:16px;border-radius:8px;background:rgba(255,255,255,.22);overflow:hidden}
 .u .t i{display:block;height:100%;border-radius:8px;width:0;transition:width .6s}
+.cap{font-size:12px;color:var(--c-sub,var(--muted));margin:-8px 0 2px 142px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cap:empty{display:none}
+.panel input[type=text]{width:100%;background:#1b2340;color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:6px 8px;font:inherit;margin:4px 0}
+.panel .sub{font-size:12px;color:#9fb3d9;margin:10px 0 0}
+.panel .hint{font-size:12px;color:#ffd38a;margin:6px 0 0;line-height:1.5}
+.panel .hint:empty{display:none}
+.status{white-space:pre-line}
 /* panel */
 .panel{
   width:340px;max-width:100%;background:rgba(10,14,30,.6);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
@@ -202,8 +209,10 @@ html,body{overflow-x:hidden;overflow-y:auto}
     <article class="card" id="usageCard">
       <span class="badge">停止中</span>
       <div class="u u-cpu"><div class="l"><span>CPU</span><b id="vcpu">0%</b></div><div class="t"><i id="bcpu" style="background:var(--cpu)"></i></div></div>
-      <div class="u u-gpu"><div class="l"><span>GPU</span><b id="vgpu">0%</b></div><div class="t"><i id="bgpu" style="background:var(--gpu)"></i></div></div>
+      <!-- GPUの行は、見つかったGPUの数と設定に合わせて作る -->
+      <div id="gpuRows"></div>
       <div class="u u-ram"><div class="l"><span>RAM</span><b id="vram">0%</b></div><div class="t"><i id="bram" style="background:var(--ram)"></i></div></div>
+      <div class="cap" id="nram"></div>
     </article>
   </section>
 
@@ -225,7 +234,7 @@ html,body{overflow-x:hidden;overflow-y:auto}
     <label>使用量カード <span class="rv"><input type="range" id="zUsage" min="50" max="150" value="100"><output id="oUsage">100%</output></span></label>
     <label>レーダーの高さ <span class="rv"><input type="range" id="rh" min="120" max="260" value="230"><output id="oRh">230px</output></span></label>
     <label>並べ方
-      <select id="layoutSel"><option value="one">縦1列</option><option value="two">横2列</option></select>
+      <select id="layoutSel"><option value="auto">自動</option><option value="one">縦1列</option><option value="two">横2列</option></select>
     </label>
     <label>時計カードを表示 <input type="checkbox" id="showClock" checked></label>
     <label>天気カードを表示 <input type="checkbox" id="showWx" checked></label>
@@ -261,21 +270,44 @@ html,body{overflow-x:hidden;overflow-y:auto}
     <div id="tcList"></div>
     <div style="font-size:12px;color:#9fb3d9;margin:4px 0 0">変えていない項目は、「外観」の文字色（白／黒）に従います。</div>
 
-    <h3>使用量の色</h3>
-    <label>CPU <input type="color" id="c_cpu" value="#6FD0FF"></label>
-    <label>GPU <input type="color" id="c_gpu" value="#C9A8FF"></label>
-    <label>RAM <input type="color" id="c_ram" value="#9AE6B4"></label>
+    <h3>使用量</h3>
+    <label>更新間隔
+      <select id="usageSec"><option value="1" selected>1秒</option><option value="2">2秒</option><option value="3">3秒</option><option value="4">4秒</option><option value="5">5秒</option></select>
+    </label>
+    <label>RAMの量（GB）も表示 <input type="checkbox" id="ramGb"></label>
+    <label>表示するGPU
+      <select id="gpuSel"><option value="all" selected>すべて（GPUごとに1行）</option><option value="auto">自動（使用率の高い方）</option></select>
+    </label>
+    <label>CPUの色 <input type="color" id="c_cpu" value="#6FD0FF"></label>
+    <label>GPUの色 <input type="color" id="c_gpu" value="#C9A8FF"></label>
+    <label>RAMの色 <input type="color" id="c_ram" value="#9AE6B4"></label>
     <button class="btn" id="resetColors" type="button">既定の色に戻す</button>
+    <div class="hint" id="usageNote"></div>
 
-    <h3>動作状態の試験</h3>
+    <h3>動作条件</h3>
+    <label>ゲーム中の動作
+      <select id="gameAction"><option value="stop" selected>全停止</option><option value="none">何もしない</option></select>
+    </label>
+    <label>バッテリー駆動中の間隔
+      <select id="batMult"><option value="1">そのまま</option><option value="2" selected>2倍</option><option value="3">3倍</option><option value="4">4倍</option></select>
+    </label>
+    <label>バッテリー駆動中も時計は1秒 <input type="checkbox" id="clockBat1s" checked></label>
+    <label>バッテリー節約中もバッテリー扱い <input type="checkbox" id="saverBat" checked></label>
+    <label>ロック中は停止 <input type="checkbox" id="lockStop" checked></label>
+    <div class="sub">ゲーム扱いにするアプリ（実行ファイル名。カンマ区切り）</div>
+    <input type="text" id="gameExes" placeholder="例: game.exe, launcher.exe" spellcheck="false">
+    <button class="btn" id="addFg" type="button" disabled>直前のアプリを追加: <span id="lastFg">—</span></button>
+
+    <h3>動作状態</h3>
     <div class="seg">
-      <label><input type="radio" name="power" value="ac" checked>通常</label>
+      <label><input type="radio" name="power" value="auto" checked>自動（実測）</label>
+      <label><input type="radio" name="power" value="ac">通常</label>
       <label><input type="radio" name="power" value="battery">バッテリー</label>
       <label><input type="radio" name="power" value="game">ゲーム中</label>
     </div>
     <div class="status" id="status"></div>
 
-    <div class="note">天気・使用量・レーダーはダミーの値です。時計と日付は、この端末の時刻を使っています。</div>
+    <div class="note">使用量と動作状態は、Windowsの実測です（ブラウザで開いたときはダミー）。天気・レーダー・警報はまだダミーです。「通常／バッテリー／ゲーム中」は試験用の固定で、保存されません。</div>
   </aside>
 </main>
 </div>
@@ -340,7 +372,9 @@ html,body{overflow-x:hidden;overflow-y:auto}
   }
   function tickClock(){
     renderClock();
-    var now=Date.now(),ms=S.sec?1000-(now%1000):60000-(now%60000);
+    /* バッテリー駆動中で「時計は1秒」がオフなら、間隔を倍にする（秒は飛ぶ） */
+    var step=(S.power==='battery'&&!$('#clockBat1s').checked)?(+$('#batMult').value||2):1;
+    var now=Date.now(),ms=S.sec?1000*step-(now%1000):60000-(now%60000);
     clockTimer=setTimeout(tickClock,ms+8);
   }
   function setMode(m){
@@ -384,24 +418,105 @@ html,body{overflow-x:hidden;overflow-y:auto}
   $('#warnOn').onchange=function(e){S.warnOn=e.target.checked;renderWarns()};
   $('#warnSel').onchange=function(e){S.warnSet=e.target.value;renderWarns()};
 
-  /* ---------- 使用量 ---------- */
-  var V={cpu:38,gpu:21,ram:61};
+  /* ---------- 使用量（§5）：アプリではWindowsの実測、ブラウザではダミー ---------- */
+  var T=window.__TAURI__;
+  var U=null,usageBusy=false,gpuPick=null;
   var clamp=function(v,a,b){return Math.max(a,Math.min(b,v))};
-  function stepUsage(){
+  var V={cpu:38,g1:21,g2:2,ram:61};
+  function dummyUsage(){
     V.cpu=clamp(V.cpu+(Math.random()*16-8),3,97);
-    V.gpu=clamp(V.gpu+(Math.random()*12-6),1,95);
+    V.g1=clamp(V.g1+(Math.random()*12-6),1,95);
+    V.g2=clamp(V.g2+(Math.random()*6-3),0,40);
     V.ram=clamp(V.ram+(Math.random()*2-1),30,90);
-    ['cpu','gpu','ram'].forEach(function(k){
-      var v=Math.round(V[k]);
-      $('#v'+k).textContent=v+'%';
-      $('#b'+k).style.width=v+'%';
+    return {cpu:V.cpu,ram:V.ram,ram_used_gb:15.7*V.ram/100,ram_total_gb:15.7,notes:[],
+      gpus:[{id:'dummy_igpu',name:'Iris Xe',full_name:'Intel(R) Iris(R) Xe Graphics',usage:V.g1},
+            {id:'dummy_dgpu',name:'GTX 1650 Ti',full_name:'NVIDIA GeForce GTX 1650 Ti',usage:V.g2}]};
+  }
+  /* 表示するGPUを選ぶ。自動は使用率の高い方。差が小さいときは切り替えず、表示がちらつかないようにする */
+  function pickGpu(){
+    if(!U||!U.gpus||!U.gpus.length)return null;
+    var want=$('#gpuSel').value;
+    if(want&&want!=='auto'&&want!=='all'){
+      var f=U.gpus.filter(function(g){return g.id===want})[0];
+      return f||{id:want,name:'選んだGPUが見つかりません',usage:null};
+    }
+    var cand=U.gpus.filter(function(g){return g.usage!=null});
+    if(!cand.length)return U.gpus[0];
+    var best=cand.reduce(function(a,b){return b.usage>a.usage?b:a});
+    var cur=gpuPick&&cand.filter(function(g){return g.id===gpuPick})[0];
+    if(cur&&best.usage-cur.usage<5)best=cur;
+    gpuPick=best.id;
+    return best;
+  }
+  function setRow(k,v){
+    if(v==null||!isFinite(v)){$('#v'+k).textContent='—';$('#b'+k).style.width='0';return}
+    var r=Math.round(v);
+    $('#v'+k).textContent=r+'%';$('#b'+k).style.width=r+'%';
+  }
+  function gb(x){return x>=100?Math.round(x)+'':(Math.round(x*10)/10).toFixed(1)}
+  /* 表示するGPUの一覧: すべて／自動（1つ）／固定（1つ） */
+  function gpusToShow(){
+    if(!U)return [null];
+    if(!U.gpus||!U.gpus.length)return [{id:'',name:'GPUが見つかりません',usage:null}];
+    if($('#gpuSel').value==='all')return U.gpus;
+    return [pickGpu()];
+  }
+  /* GPUの行を数に合わせて作り直す（数が同じなら作り直さず、棒の動きを保つ） */
+  function renderGpuRows(){
+    var box=$('#gpuRows'),list=gpusToShow();
+    if(box.children.length!==list.length*2){
+      var h='';
+      list.forEach(function(){
+        h+='<div class="u u-gpu"><div class="l"><span>GPU</span><b>—</b></div><div class="t"><i style="background:var(--gpu)"></i></div></div><div class="cap"></div>';
+      });
+      box.innerHTML=h;
+    }
+    list.forEach(function(g,i){
+      var row=box.children[i*2],cap=box.children[i*2+1],v=g?g.usage:null;
+      var b=row.querySelector('b'),bar=row.querySelector('i');
+      if(v==null||!isFinite(v)){b.textContent='—';bar.style.width='0'}
+      else{var r=Math.round(v);b.textContent=r+'%';bar.style.width=r+'%'}
+      cap.textContent=g?g.name:'';
+      cap.title=g&&g.full_name?g.full_name:'';
     });
   }
+  function renderUsage(){
+    setRow('cpu',U?U.cpu:null);
+    setRow('ram',U?U.ram:null);
+    renderGpuRows();
+    $('#nram').textContent=(U&&$('#ramGb').checked&&U.ram_total_gb>0)?gb(U.ram_used_gb)+' / '+gb(U.ram_total_gb)+' GB':'';
+    $('#usageNote').textContent=(U&&U.notes&&U.notes.length)?'使用量の取得: '+U.notes.join('／'):'';
+  }
+  function stepUsage(){
+    if(!T){U=dummyUsage();renderUsage();return}
+    if(usageBusy)return;
+    usageBusy=true;
+    T.core.invoke('get_usage').then(function(u){U=u;renderUsage()})
+      .catch(function(e){$('#usageNote').textContent='使用量を取得できませんでした: '+String(e)})
+      .then(function(){usageBusy=false});
+  }
+  /* 「表示するGPU」の一覧を作り直す（保存してある選択は残す） */
+  function fillGpuList(list){
+    var sel=$('#gpuSel'),keep=sel.value||'all';
+    sel.innerHTML='';
+    sel.add(new Option('すべて（GPUごとに1行）','all'));
+    sel.add(new Option('自動（使用率の高い方）','auto'));
+    (list||[]).forEach(function(g){sel.add(new Option(g.name+'だけ（'+g.full_name+'）',g.id))});
+    if(keep!=='auto'&&keep!=='all'&&!(list||[]).some(function(g){return g.id===keep}))sel.add(new Option('（いまは見つかりません）',keep));
+    sel.value=keep;
+  }
+  function refreshGpuList(){
+    if(!T){fillGpuList(dummyUsage().gpus);return}
+    T.core.invoke('list_gpus').then(fillGpuList).catch(function(e){$('#usageNote').textContent='GPUの一覧を取得できませんでした: '+String(e)});
+  }
+  $('#gpuSel').onchange=function(){gpuPick=null;renderUsage()};
+  $('#ramGb').onchange=renderUsage;
   var usageTimer=null;
   function startUsage(){
     clearInterval(usageTimer);
     if(S.power==='game')return;
-    usageTimer=setInterval(stepUsage,S.power==='battery'?2000:1000);
+    var sec=+$('#usageSec').value||1,mult=S.power==='battery'?(+$('#batMult').value||2):1;
+    usageTimer=setInterval(stepUsage,sec*mult*1000);
   }
 
   /* ---------- 雨雲レーダー（ダミー描画：地図の上に、粒のはっきりした雨雲） ---------- */
@@ -567,6 +682,8 @@ html,body{overflow-x:hidden;overflow-y:auto}
       var e=document.getElementById(id);if(!e)return;
       if(e.type==='checkbox'){e.checked=!!o.v[id];e.dispatchEvent(new Event('change',{bubbles:true}))}
       else{
+        /* 一覧があとから埋まる選択肢（表示するGPUなど）は、保存した値を仮に足しておく */
+        if(e.tagName==='SELECT'&&![].some.call(e.options,function(op){return op.value===o.v[id]}))e.add(new Option(String(o.v[id]),o.v[id]));
         e.value=o.v[id];
         e.dispatchEvent(new Event(e.tagName==='SELECT'?'change':'input',{bubbles:true}));
       }
@@ -583,32 +700,105 @@ html,body{overflow-x:hidden;overflow-y:auto}
   document.querySelector('.panel').addEventListener('change',save);
   window.GadgetSettings={load:load,save:save};
 
-  /* ---------- 動作状態（通常／バッテリー／ゲーム中） ---------- */
-  var MSG={
-    ac:'電源接続：通常の更新です。時計1秒、使用量1秒、天気10分、レーダー5分。',
-    battery:'バッテリー駆動：更新頻度を半分にします。使用量2秒、天気20分、レーダー10分。時計は秒表示のため1秒のままです。',
-    game:'ゲーム中：全項目の更新を止めます。ゲームを終えると、すぐに1回更新します。'
-  };
-  function setPower(p){
-    var was=S.power;S.power=p;
-    $('#status').textContent=MSG[p];
-    var off=p==='game';
-    ['clockCard','wxCard','usageCard'].forEach(function(id){$('#'+id).classList.toggle('off',off)});
-    clearTimeout(clockTimer);
-    if(!off){
-      tickClock();
-      if(was==='game'){refreshWeather();stepUsage()}
-    }
-    startUsage();startRadar();
+  /* ---------- 動作状態（§7）：電源・ゲーム中・ロックを実測し、更新間隔を変える ---------- */
+  var P={override:'auto',det:null,lastFg:null,err:''};
+  var QL={0:'不明',1:'ロック・スクリーンセーバー',2:'全画面アプリ',3:'Direct3Dの全画面',4:'プレゼンテーションモード',5:'通常',6:'サインイン直後',7:'ストアアプリ'};
+  function opt(){
+    return {gameAction:$('#gameAction').value,mult:+$('#batMult').value||2,clock1s:$('#clockBat1s').checked,
+            saver:$('#saverBat').checked,lockStop:$('#lockStop').checked,usageSec:+$('#usageSec').value||1};
   }
-  document.querySelectorAll('input[name=power]').forEach(function(r){r.onchange=function(){setPower(r.value)}});
+  function gameList(){
+    return $('#gameExes').value.split(/[,、\s]+/).map(function(s){return s.trim()}).filter(Boolean);
+  }
+  /* 実際に使う状態: ac / battery / game / locked（試験で固定しているときは、それを使う） */
+  function effectiveMode(){
+    if(P.override!=='auto')return P.override;
+    var d=P.det,c=opt();
+    if(!d)return 'ac';
+    if(d.locked&&c.lockStop)return 'locked';
+    if(d.game&&c.gameAction==='stop')return 'game';
+    if(d.on_battery||(c.saver&&d.battery_saver))return 'battery';
+    return 'ac';
+  }
+  function renderStatus(m){
+    var c=opt(),d=P.det,src=P.override==='auto'?'':'（試験で固定）',L=[];
+    if(m==='ac')L.push('通常'+src+'：時計1秒、使用量'+c.usageSec+'秒、天気10分、レーダー5分。');
+    if(m==='battery')L.push('バッテリー'+src+'：更新の間隔を'+c.mult+'倍にします。使用量'+(c.usageSec*c.mult)+'秒、天気'+(10*c.mult)+'分、レーダー'+(5*c.mult)+'分。時計は'+(c.clock1s?'1秒のまま':(c.mult+'秒ごと'))+'です。');
+    if(m==='game')L.push('ゲーム中'+src+'：全項目の更新を止めています'+(d&&d.game_reason&&!src?'（'+d.game_reason+'）':'')+'。終わるとすぐに1回更新します。');
+    if(m==='locked')L.push('ロック中：更新を止めています。');
+    if(d&&d.game&&c.gameAction!=='stop'&&!src)L.push('ゲーム中を検知しました（'+(d.game_reason||'')+'）。設定により止めていません。');
+    if(d){
+      L.push('検知：電源 '+(d.on_battery?'バッテリー':'AC')+(d.battery_percent!=null?' '+d.battery_percent+'%':'')+(d.battery_saver?'（節約中）':'')+
+             '／状態 '+(QL[d.quns]||d.quns)+(d.fullscreen_window?'／手前の窓が全画面':'')+'／手前 '+(d.foreground_exe||'このアプリ'));
+    }else if(!T){L.push('ブラウザで開いているため、実測はできません。')}
+    if(P.err)L.push(P.err);
+    $('#status').textContent=L.join('\n');
+  }
+  var curMode=null,curKey='';
+  function applyMode(force){
+    var m=effectiveMode(),c=opt();
+    var key=[m,c.mult,c.clock1s,c.usageSec].join('|');
+    renderStatus(m);
+    if(key===curKey&&!force)return;
+    var wasStopped=curMode==='game'||curMode==='locked';
+    var stopped=m==='game'||m==='locked';
+    curMode=m;curKey=key;
+    S.power=stopped?'game':m;
+    ['clockCard','wxCard','usageCard'].forEach(function(id){
+      var el=$('#'+id);el.classList.toggle('off',stopped);
+      var b=el.querySelector('.badge');if(b)b.textContent=m==='locked'?'停止中（ロック）':'停止中';
+    });
+    clearTimeout(clockTimer);
+    if(!stopped)tickClock();
+    startUsage();startRadar();
+    /* ゲーム・ロックの終わりとスリープ復帰では、全項目をすぐ1回更新する */
+    if(!stopped&&(wasStopped||force)){refreshWeather();stepUsage()}
+  }
+  document.querySelectorAll('input[name=power]').forEach(function(r){r.onchange=function(){P.override=r.value;applyMode(false)}});
+  ['gameAction','batMult','clockBat1s','saverBat','lockStop','usageSec'].forEach(function(id){
+    $('#'+id).addEventListener('change',function(){applyMode(false)});
+  });
+  $('#addFg').onclick=function(){
+    if(!P.lastFg)return;
+    var l=gameList();
+    if(l.map(function(s){return s.toLowerCase()}).indexOf(P.lastFg)<0)l.push(P.lastFg);
+    $('#gameExes').value=l.join(', ');
+    save();pollState();
+  };
+  /* 2秒ごとに状態を見る。間が大きく空いたら、スリープから戻ったとみなす */
+  var lastPoll=0,polling=false;
+  function pollState(){
+    if(!T||polling)return;
+    var now=Date.now(),resumed=lastPoll&&now-lastPoll>15000;
+    lastPoll=now;polling=true;
+    T.core.invoke('get_system_state',{gameExes:gameList()}).then(function(d){
+      P.det=d;P.err='';
+      if(d.foreground_exe){P.lastFg=d.foreground_exe;$('#lastFg').textContent=d.foreground_exe;$('#addFg').disabled=false}
+      applyMode(!!resumed);
+    }).catch(function(e){P.err='動作状態を取得できませんでした: '+String(e);applyMode(false)})
+      .then(function(){polling=false});
+  }
 
   /* ---------- 起動 ---------- */
-  applyColors();setMode('digital');refreshWeather();renderWarns();stepUsage();
+  applyColors();setMode('digital');refreshWeather();renderWarns();renderUsage();
   $('#radarBox').style.display='none';
   applyTc();
-  setPower('ac');
   load();
+  /* 前の版では「自動」が保存されている。一度だけ、新しい既定の「すべて」に切り替える */
+  try{
+    if(!localStorage.getItem('desktopGadget.gpuAll')){
+      if($('#gpuSel').value==='auto'){$('#gpuSel').value='all';save()}
+      localStorage.setItem('desktopGadget.gpuAll','1');
+    }
+  }catch(e){}
+  renderUsage();
+  applyMode(true);
+  refreshGpuList();
+  /* 使用率は前回との差で出すため、最初の値は少し待ってから取る（§5） */
+  setTimeout(stepUsage,T?1200:0);
+  if(T){pollState();setInterval(pollState,2000)}
+  /* 設定を開いたら、GPUの一覧を取り直す（開閉の処理のあとで見る） */
+  $('#togglePanel').addEventListener('click',function(){setTimeout(function(){if($('#panel').style.display!=='none')refreshGpuList()},0)});
 })();
 </script>
 
@@ -639,7 +829,6 @@ html,body{overflow-x:hidden;overflow-y:auto}
      高さが画面に収まらないときは、(1) 横2列に並べ替え、(2) それでも足りなければ縮小する */
   var app=document.getElementById('app'),stage=document.querySelector('.stage'),panel=document.getElementById('panel');
   var sel=document.getElementById('layoutSel');
-  sel.insertBefore(new Option('自動','auto'),sel.firstChild);sel.value='auto';
   var pref='auto';
   try{var sv=JSON.parse(localStorage.getItem('desktopGadget.v1')||'null');
       if(sv&&sv.v&&sv.v.layoutSel){sel.value=sv.v.layoutSel;pref=sel.value||'auto'}}catch(e){}
