@@ -1,6 +1,6 @@
 [package]
 name = "desktop-gadget"
-version = "0.1.0"
+version = "1.0.0"
 description = "Desktop gadget (frosted glass cards)"
 edition = "2021"
 
@@ -15,6 +15,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 # フェーズ5：設定の書き出し・読み込みのファイル選択
 tauri-plugin-dialog = "2"
+# 二重起動を防ぐ（2回目に起動したら、設定画面を開く）
+tauri-plugin-single-instance = "2"
 window-vibrancy = "0.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

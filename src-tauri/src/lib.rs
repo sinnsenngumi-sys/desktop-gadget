@@ -379,6 +379,10 @@ fn wallpaper_stamp() -> Result<String, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 二重起動の防止は、ほかのプラグインより先に登録する。2回目に起動したら、設定画面を開く
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            resident::open_settings_later(app);
+        }))
         .plugin(tauri_plugin_dialog::init())
         .manage(UsageState(Mutex::new(None)))
         .on_window_event(|window, event| {
