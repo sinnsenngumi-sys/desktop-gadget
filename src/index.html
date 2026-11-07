@@ -65,8 +65,9 @@ body{
 .temp{font-size:68px;font-weight:300;line-height:1;color:var(--c-temp,var(--fg))}
 .hum{font-size:26px;font-weight:500;color:var(--c-hum,var(--fg))}
 .hum span{color:var(--c-hum,var(--muted));font-size:16px;margin-right:6px}
-.rc{display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:0}
-.warns{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.rc{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none}
+.warns{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.warns:empty{display:none}
 .w{font-size:12.5px;font-weight:700;padding:2px 10px;border-radius:99px;white-space:nowrap;line-height:1.45}
 /* 令和8年体系の色: 特別警報（レベル5）黒、危険警報（レベル4）紫、警報（レベル3）赤、注意報（レベル2）黄 */
 .w.adv{background:#facc15;color:#3a2e00}
@@ -74,6 +75,18 @@ body{
 .w.danger{background:#7e22ce;color:#fff}
 .w.sp{background:#0b0b0b;color:#fff;box-shadow:0 0 0 1.5px #fff}
 .place{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px}
+/* 今日の最高・最低気温（湿度の下に2行で） */
+.hilo{display:flex;flex-direction:column;align-items:flex-end;gap:1px;font-size:15px;line-height:1.3;font-variant-numeric:tabular-nums;white-space:nowrap}
+.hilo span{color:var(--c-sub,var(--muted));margin-right:6px;font-size:12px}
+.hilo b{font-weight:600;color:var(--c-temp,var(--fg))}
+.hilo.off{display:none}
+.temp{white-space:nowrap}
+.wx{min-width:0}
+/* 地図の隅のラベル */
+.mchip{position:absolute;bottom:8px;display:flex;align-items:center;gap:5px;font-size:11.5px;padding:2px 8px;border-radius:99px;background:rgba(0,0,0,.62);color:#fff;white-space:nowrap}
+.mcap{left:8px}
+.mcap.stale{background:rgba(120,70,0,.85)}
+.mchip.legend{right:8px}
 .upd.stale{color:#ffd38a}
 .rmsg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;padding:6px 12px;border-radius:10px;background:rgba(0,0,0,.72);color:#fff;white-space:nowrap}
 .rmsg:empty{display:none}
@@ -95,7 +108,7 @@ body{
 .prog b{display:block;height:100%;background:var(--fg);width:0}
 .rinfo{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--c-rsub,var(--muted));margin-top:6px}
 .legend{display:flex;align-items:center;gap:6px}
-.legend .bar{display:block;width:120px;height:8px;border-radius:4px;background:linear-gradient(90deg,#c9d1ea,#8db3e3,#4f86e0,#facc15,#fb923c,#ef4444)}
+.legend .bar{display:block;width:84px;height:7px;border-radius:4px;background:linear-gradient(90deg,#c9d1ea,#8db3e3,#4f86e0,#facc15,#fb923c,#ef4444)}
 .attr{font-size:11px;color:var(--c-rsub,var(--muted));margin-top:6px}
 /* usage */
 .u{display:flex;align-items:center;gap:14px;margin:10px 0}
@@ -228,20 +241,25 @@ html,body{overflow-x:hidden;overflow-y:auto}
           <svg viewBox="0 0 64 64" id="wxIcon" role="img" aria-label="天気"></svg>
           <div style="min-width:0"><div class="place" id="wxPlace">場所が未設定です</div><div class="temp" id="temp">--°</div></div>
         </div>
+        <!-- 右: 湿度と、今日の最高・最低気温（予報） -->
         <div class="rc">
           <div class="hum"><span>湿度</span><b id="hum">--%</b></div>
-          <div class="warns" id="warns"></div>
+          <div class="hilo" id="hilo"><div><span>最高</span><b id="tmax">--°</b></div><div><span>最低</span><b id="tmin">--°</b></div></div>
         </div>
       </div>
+      <!-- 警報・注意報は、気温の下に横に並べる（気温と重ならないように） -->
+      <div class="warns" id="warns"></div>
       <div class="upd" id="upd"></div>
       <div class="radarBox" id="radarBox">
         <div class="mapWrap">
           <canvas id="radar"></canvas>
           <span class="chip" id="rlabel">--:--</span>
           <span class="rmsg" id="rmsg"></span>
+          <!-- 「○は現在地」と凡例は、地図の下の隅に重ねる（行を取らない） -->
+          <span class="mchip mcap" id="rcap">○ 現在地</span>
+          <span class="mchip legend"><span>弱</span><i class="bar" id="rlegend"></i><span>強</span></span>
         </div>
         <div class="prog"><b id="rprog"></b></div>
-        <div class="rinfo"><span id="rcap">雨雲レーダー（○は現在地）</span><span class="legend"><span>弱</span><i class="bar" id="rlegend"></i><span>強</span></span></div>
         <div class="attr" id="rattr">出典：気象庁ホームページ（雨雲の動き）、地理院タイル。いずれも色を変えて表示</div>
       </div>
     </article>
@@ -348,6 +366,7 @@ html,body{overflow-x:hidden;overflow-y:auto}
     <label>警報の地域
       <select id="areaSel"><option value="">（場所を決めると選べます）</option></select>
     </label>
+    <label>今日の最高・最低気温を表示 <input type="checkbox" id="hiloOn" checked></label>
     <label>温度の単位
       <select id="tempUnit"><option value="c" selected>℃</option><option value="f">℉</option></select>
     </label>

@@ -124,6 +124,7 @@
     var p=loc(),w=W.wx;
     if(!p){
       $('#wxPlace').textContent='場所が未設定です';$('#temp').textContent='--°';$('#hum').textContent='--%';
+      $('#hilo').classList.add('off');
       $('#wxIcon').innerHTML=icon('partly',true);$('#wxIcon').setAttribute('aria-label','天気');
       $('#upd').textContent='「設定」→「天気」で場所を決めてください';$('#upd').classList.remove('stale');
       return;
@@ -132,6 +133,11 @@
     $('#wxPlace').textContent=p.name+(w?'・'+k[0]:'');
     $('#wxPlace').title=p.name+(w?'・'+k[0]:'');
     $('#temp').textContent=fmtTemp(w?w.temp_c:null);
+    /* 今日の最高・最低（予報）。値がないときは「--°」 */
+    $('#hilo').classList.toggle('off',!$('#hiloOn').checked);
+    $('#tmax').textContent=fmtTemp(w?w.temp_max_c:null);
+    $('#tmin').textContent=fmtTemp(w?w.temp_min_c:null);
+    $('#hilo').title='今日の予報（Open-Meteo）';
     $('#hum').textContent=w&&w.humidity!=null?Math.round(w.humidity)+'%':'--%';
     $('#wxIcon').innerHTML=icon(w?k[1]:'cloud',w?w.is_day:true);
     $('#wxIcon').setAttribute('aria-label',w?k[0]:'天気');
@@ -145,7 +151,7 @@
   function fetchWeather(){
     var p=loc();
     if(!p){renderWeather();return}
-    if(!T){W.wx={temp_c:22,humidity:58,code:2,is_day:true};W.wxAt=Date.now();renderWeather();return}
+    if(!T){W.wx={temp_c:22,humidity:58,code:2,is_day:true,temp_max_c:25,temp_min_c:16};W.wxAt=Date.now();renderWeather();return}
     if(wxBusy)return;
     wxBusy=true;
     inv('wx_current',{lat:p.lat,lon:p.lon}).then(function(w){W.wx=w;W.wxAt=Date.now();W.wxErr=''})
@@ -391,7 +397,8 @@
     }else{chip.textContent='--:--';$('#rprog').style.width='0'}
     var stale=W.timesAt&&(W.radarErr&&!W.frames.length||Date.now()-W.timesAt>(2*5*(S.power==='battery'?C.opt().mult:1)+1)*60000);
     chip.classList.toggle('stale',!!stale);
-    $('#rcap').textContent=stale?'古いデータ（'+hm(new Date(W.timesAt))+' 取得）':'雨雲レーダー（○は現在地）';
+    $('#rcap').textContent=stale?'古いデータ（'+hm(new Date(W.timesAt))+' 取得）':'○ 現在地';
+    $('#rcap').classList.toggle('stale',!!stale);
   }
   /* アニメ: 実況の最新と最後のコマで少し止まる */
   function step(){
@@ -443,6 +450,7 @@
 
   /* ---------- 設定の変更 ---------- */
   $('#tempUnit').addEventListener('change',renderWeather);
+  $('#hiloOn').addEventListener('change',renderWeather);
   $('#wxMin').addEventListener('change',function(){schedule();renderWeather()});
   $('#radarZoom').addEventListener('change',function(){resize()});
   $('#warnOn').addEventListener('change',function(){if(S.warnOn&&!W.warn)fetchWarnings()});

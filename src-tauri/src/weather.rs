@@ -269,11 +269,18 @@ pub struct Weather {
     pub is_day: bool,
     /// 観測（モデル）時刻。現地時刻 "2026-11-04T01:00"
     pub time: Option<String>,
+    /// その日（現地の日付）の最高・最低気温の予報（℃）
+    pub temp_max_c: Option<f64>,
+    pub temp_min_c: Option<f64>,
 }
 
 pub fn parse_weather(v: &Value) -> Result<Weather, String> {
     let c = v.get("current").ok_or("天気の応答に current がありません")?;
+    // 日ごとの予報（daily）の、今日（配列の先頭）の値。なくても気温・湿度は出す
+    let today = |k: &str| v.get("daily").and_then(|d| d.get(k)).and_then(|a| a.get(0)).and_then(|x| x.as_f64());
     Ok(Weather {
+        temp_max_c: today("temperature_2m_max"),
+        temp_min_c: today("temperature_2m_min"),
         temp_c: c.get("temperature_2m").and_then(|x| x.as_f64()),
         humidity: c.get("relative_humidity_2m").and_then(|x| x.as_f64()),
         code: c.get("weather_code").and_then(|x| x.as_i64()),
@@ -285,7 +292,7 @@ pub fn parse_weather(v: &Value) -> Result<Weather, String> {
 pub async fn weather(net: &Net, lat: f64, lon: f64) -> Result<Weather, String> {
     check_latlon(lat, lon)?;
     let url = format!(
-        "{}?latitude={:.4}&longitude={:.4}&current=temperature_2m,relative_humidity_2m,weather_code,is_day&timezone=auto",
+        "{}?latitude={:.4}&longitude={:.4}&current=temperature_2m,relative_humidity_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min&forecast_days=1&timezone=auto",
         net.src.open_meteo_forecast, lat, lon
     );
     parse_weather(&net.get_json(&url).await?)
@@ -709,7 +716,13 @@ mod tests {
         assert_eq!(w.humidity, Some(71.0));
         assert_eq!(w.code, Some(3));
         assert!(!w.is_day);
+        // daily がないときは、最高・最低だけ None
+        assert_eq!(w.temp_max_c, None);
         assert!(parse_weather(&json!({})).is_err());
+        let v = json!({"current":{"temperature_2m":7.0},"daily":{"time":["2026-11-07"],"temperature_2m_max":[12.4],"temperature_2m_min":[2.9]}});
+        let w = parse_weather(&v).unwrap();
+        assert_eq!(w.temp_max_c, Some(12.4));
+        assert_eq!(w.temp_min_c, Some(2.9));
     }
 
     #[test]
