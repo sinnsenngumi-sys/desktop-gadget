@@ -1,7 +1,8 @@
 [package]
 name = "desktop-gadget"
 version = "1.1.0"
-description = "Desktop gadget (frosted glass cards)"
+description = "Frosted-glass desktop gadget for Windows (clock, weather, system monitor)"
+license = "MIT"
 edition = "2021"
 
 [lib]
@@ -17,7 +18,6 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
 # 二重起動を防ぐ（2回目に起動したら、設定画面を開く）
 tauri-plugin-single-instance = "2"
-window-vibrancy = "0.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"

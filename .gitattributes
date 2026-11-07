@@ -1,0 +1,4 @@
+# 改行はリポジトリの中では LF にそろえる（Windows で取り出しても、ツールが扱いやすいように）
+* text=auto eol=lf
+*.png binary
+*.ico binary

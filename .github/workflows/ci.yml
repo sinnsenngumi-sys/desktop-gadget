@@ -1,0 +1,47 @@
+# プッシュとプルリクエストごとの検査
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    name: Rust（clippy・単体テスト）
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      # 警告もエラーとして扱う（テストのコードも含む）
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+
+  ui:
+    name: 画面の自動テスト（Playwright）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # 大きさを測るテストがあるので、手元と同じ日本語フォント（Noto Sans CJK）をそろえる
+      - run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+      - run: npm run test:ui
+      # 失敗したときに見られるよう、画面の写しを残す
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-screenshots
+          path: tests/ui/out/

@@ -1,0 +1,48 @@
+# v から始まるタグ（例: v1.2.0）を push すると、Windows でインストーラーをビルドし、Releases に下書きとして置く
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # タグとアプリの版が食い違っていたら、ここで止める（npm run set-version で版をそろえてからタグを付ける）
+      - name: タグとアプリの版を照合する
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          app=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "タグ: $tag / アプリ: $app"
+          test "$tag" = "$app"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: DesktopGadget ${{ github.ref_name }}
+          releaseBody: |
+            変更点は [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/CHANGELOG.md) を参照してください。
+
+            インストーラー（`DesktopGadget_*_x64-setup.exe`）を実行すると入ります。管理者権限は不要です。
+            署名をしていないため、「WindowsによってPCが保護されました」と出たときは「詳細情報」→「実行」で進めてください。
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

@@ -1,3 +1,11 @@
+//! DesktopGadget の本体（Rust側）
+//!
+//! - sysmon:   CPU・GPU・RAM・温度・ネットワークの取得（PDH、DXGI、D3DKMT、IP Helper）
+//! - sysstate: 電源・ゲーム中・ロックの検知（更新間隔の切り替えに使う）
+//! - weather:  天気・警報・雨雲レーダーの取得（許可リストとキャッシュつき）
+//! - resident: 常駐化（デスクトップに付ける、位置、設定ファイル、自動起動、トレイ）
+//! - lib.rs:   画面（WebView）から呼ぶコマンドと、擬似ガラス用の壁紙の読み込み
+
 mod sysmon;
 mod sysstate;
 mod resident;
@@ -7,29 +15,6 @@ use base64::Engine as _;
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{Manager, WebviewWindow};
-use window_vibrancy::{apply_acrylic, apply_blur, apply_mica, clear_acrylic, clear_blur, clear_mica};
-
-/// OSのぼかし効果の比較用。画面のボタンから呼ぶ。
-/// kind: "none" | "acrylic" | "blur" | "mica"
-#[tauri::command]
-fn set_effect(window: WebviewWindow, kind: String) -> Result<String, String> {
-    // いったん全部解除してから、選んだ方式だけをかける
-    let _ = clear_acrylic(&window);
-    let _ = clear_blur(&window);
-    let _ = clear_mica(&window);
-
-    let result = match kind.as_str() {
-        "acrylic" => apply_acrylic(&window, Some((18, 18, 18, 125))),
-        "blur" => apply_blur(&window, Some((18, 18, 18, 125))),
-        "mica" => apply_mica(&window, Some(true)),
-        _ => Ok(()),
-    };
-
-    result
-        .map(|_| format!("適用しました: {}", kind))
-        .map_err(|e| format!("適用できませんでした（{}）: {}", kind, e))
-}
-
 /// 窓の大きさを、カードの大きさに合わせる（画面側から、論理ピクセルで指定する）
 #[tauri::command]
 fn fit_window(window: WebviewWindow, width: f64, height: f64) -> Result<(), String> {
@@ -424,7 +409,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            set_effect,
             fit_window,
             get_window_geometry,
             get_wallpaper,

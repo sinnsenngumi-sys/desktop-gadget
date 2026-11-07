@@ -1,3 +1,7 @@
+# 依存とビルドの成果物
 node_modules/
 src-tauri/target/
 src-tauri/gen/
+
+# 画面の自動テストが残す写し
+tests/ui/out/

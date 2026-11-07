@@ -197,8 +197,8 @@ mod tests {
 
     #[test]
     fn decisions() {
-        assert_eq!(decide(5, false, false).0, false);
-        assert_eq!(decide(3, false, false).0, true);
+        assert!(!decide(5, false, false).0);
+        assert!(decide(3, false, false).0);
         assert_eq!(decide(5, true, false).1.as_deref(), Some("枠なしの全画面"));
         assert_eq!(decide(5, false, true).1.as_deref(), Some("ゲーム扱いのアプリ"));
         let (g, _, l) = decide(1, false, false);

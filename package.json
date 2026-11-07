@@ -4,9 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build",
+    "tauri": "tauri",
+    "test:ui": "node tests/ui/run.js",
+    "set-version": "node scripts/set-version.mjs"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
-  }
+    "@tauri-apps/cli": "^2",
+    "playwright": "^1.63.0"
+  },
+  "description": "Frosted-glass desktop widget for Windows (Tauri 2 + Rust)",
+  "license": "MIT"
 }
