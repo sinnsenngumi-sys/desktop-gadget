@@ -96,7 +96,19 @@ const mock = `
     console.log(JSON.stringify(r)); check(r.out===0,'天気カードの中身がはみ出した'); hs.push(r.h);
     await (await p.$('#wxCard')).screenshot({path:out+'/hilo_'+u+'_'+String(t)+'.png'});
   }
-  check(new Set(hs).size===1,'気温の値によってカードの高さが変わる: '+hs.join(','));
+  check(new Set(hs).size===1,'気温の値や警報の札によってカードの高さが変わる: '+hs.join(','));
+  // フォントの幅が広い環境（Windows の Yu Gothic UI や CI の環境）を、文字の間隔を広げてまねる。それでも札は1行で、高さは変わらない
+  await p.addStyleTag({content:'.w{letter-spacing:3px}'});
+  const wide=await p.evaluate(()=>{
+    const ws=document.getElementById('warnSel');ws.value='sp';ws.dispatchEvent(new Event('change'));
+    const c=document.getElementById('wxCard'),R=c.getBoundingClientRect(),box=document.getElementById('warns');
+    const pills=[...box.children].map(e=>e.getBoundingClientRect());
+    return {h:Math.round(R.height),rows:new Set(pills.map(q=>Math.round(q.top))).size,inside:pills.every(q=>q.right<=R.right),more:box.lastElementChild.textContent};
+  });
+  console.log('文字の幅が広いとき', JSON.stringify(wide));
+  check(wide.rows===1,'札が2行に折り返した');
+  check(wide.h===hs[0],'文字の幅が広いと、カードの高さが変わる: '+wide.h+' / '+hs[0]);
+  check(wide.inside,'札がカードからはみ出した');
   await p.evaluate(()=>{const e=document.getElementById('hiloOn');e.checked=false;e.dispatchEvent(new Event('change'));});
   console.log('オフ', await p.evaluate(()=>getComputedStyle(document.getElementById('hilo')).display));
   console.log('ERRORS', JSON.stringify(errs)); check(errs.length === 0, 'ページでエラーが出た');

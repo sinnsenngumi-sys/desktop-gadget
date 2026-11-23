@@ -184,7 +184,7 @@
     list=list.slice().sort(function(a,b){return RANK[a.k]-RANK[b.k]});
     if(!list.length){h='<span class="w none">警報・注意報なし</span>'}
     else{
-      list.slice(0,2).forEach(function(x){h+='<span class="w '+x.k+'">'+esc(x.t)+'</span>'});
+      list.slice(0,2).forEach(function(x){h+='<span class="w '+x.k+'" title="'+esc(x.t)+'">'+esc(x.t)+'</span>'});
       if(list.length>2)h+='<span class="w more" title="'+esc(list.slice(2).map(function(x){return x.t}).join('、'))+'">ほか'+(list.length-2)+'件</span>';
     }
     if(set==='real'&&T&&W.warn&&(W.warnErr||Date.now()-W.warnAt>(2*intervalMin()+1)*60000))h+='<span class="w none">（古いデータ）</span>';

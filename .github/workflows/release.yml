@@ -12,7 +12,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # タグとアプリの版が食い違っていたら、ここで止める（npm run set-version で版をそろえてからタグを付ける）
       - name: タグとアプリの版を照合する
@@ -23,7 +23,7 @@ jobs:
           echo "タグ: $tag / アプリ: $app"
           test "$tag" = "$app"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
